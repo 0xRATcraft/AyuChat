@@ -24,7 +24,8 @@ data class ChatPanelState(
     val hasMoreMessages: Boolean = false,
     val isLoadingMore: Boolean = false,
     val typingUsers: List<TypingUser> = emptyList(),
-    val titleAvatar: AvatarInfo? = null
+    val titleAvatar: AvatarInfo? = null,
+    val profileUserId: Int? = null
 )
 
 @Serializable

@@ -1,5 +1,7 @@
 package ru.fromchat.ui.profile
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -22,7 +23,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -33,7 +33,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.ClipboardManager
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
@@ -41,6 +44,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.UserProfile
+import ru.fromchat.ui.chat.Avatar
 
 private data class ProfileUiState(
     val profile: UserProfile? = null,
@@ -54,7 +58,13 @@ private data class ProfileUiState(
 fun ProfileScreen(
     userId: Int?,
     onBack: () -> Unit,
-    onChat: (Int) -> Unit
+    onChat: (Int) -> Unit,
+    hideAvatar: Boolean = false,
+    onAvatarSlotBounds: ((Rect) -> Unit)? = null,
+    modifier: Modifier = Modifier,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    sharedAvatarKey: Any? = null
 ) {
     val clipboardManager: ClipboardManager = LocalClipboardManager.current
     var state by remember { mutableStateOf(ProfileUiState()) }
@@ -78,6 +88,7 @@ fun ProfileScreen(
     }
 
     Scaffold(
+        modifier = modifier,
         topBar = {
             TopAppBar(
                 title = { Text(text = "Profile") },
@@ -96,49 +107,88 @@ fun ProfileScreen(
                 .padding(16.dp)
         ) {
             val errorMessage = state.error
-            when {
-                state.isLoading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                }
-                errorMessage != null -> {
-                    Text(
-                        text = errorMessage,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-                state.profile != null -> {
-                    val profile = state.profile!!
-                    val profileLink = profile.username.takeIf { it.isNotBlank() }
-                        ?.let { "https://fromchat.ru/@$it" }
-                        ?: "https://fromchat.ru/?u=${profile.id}"
-                    val displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: profile.username
-                    val initials = profile.displayName?.firstOrNull()
-                        ?: profile.username.firstOrNull()
-                        ?: '?'
+            val profile = state.profile
+            val displayName = profile?.displayName?.takeIf { it.isNotBlank() }
+                ?: profile?.username?.takeIf { it.isNotBlank() }
+                ?: "?"
 
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Top
-                    ) {
-                        Surface(
-                            modifier = Modifier
-                                .size(128.dp)
-                                .padding(top = 16.dp),
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Text(
-                                    text = initials.toString(),
-                                    style = MaterialTheme.typography.headlineLarge,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
-                                )
-                            }
+            val useSharedAvatar = sharedTransitionScope != null &&
+                animatedVisibilityScope != null &&
+                sharedAvatarKey != null
+
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Top
+            ) {
+                when {
+                    useSharedAvatar -> {
+                        with(sharedTransitionScope!!) {
+                            Avatar(
+                                profilePictureUrl = profile?.profilePicture,
+                                displayName = displayName,
+                                size = 128.dp,
+                                modifier = Modifier
+                                    .padding(top = 16.dp)
+                                    .sharedElement(
+                                        rememberSharedContentState(key = sharedAvatarKey!!),
+                                        animatedVisibilityScope = animatedVisibilityScope!!
+                                    )
+                                    .size(128.dp)
+                            )
                         }
-
                         Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    !hideAvatar -> {
+                        Avatar(
+                            profilePictureUrl = profile?.profilePicture,
+                            displayName = displayName,
+                            size = 128.dp,
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    onAvatarSlotBounds != null -> {
+                        Box(
+                            modifier = Modifier
+                                .padding(top = 16.dp)
+                                .size(128.dp)
+                                .onGloballyPositioned { coords ->
+                                    val pos = coords.positionInRoot()
+                                    val sz = coords.size
+                                    onAvatarSlotBounds(
+                                        Rect(
+                                            pos.x,
+                                            pos.y,
+                                            pos.x + sz.width.toFloat(),
+                                            pos.y + sz.height.toFloat()
+                                        )
+                                    )
+                                }
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                    }
+                    else -> {
+                        Spacer(modifier = Modifier.height(16.dp + 128.dp + 12.dp))
+                    }
+                }
+
+                when {
+                    state.isLoading -> {
+                        CircularProgressIndicator(modifier = Modifier.padding(top = 24.dp))
+                    }
+                    errorMessage != null -> {
+                        Text(
+                            text = errorMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 24.dp)
+                        )
+                    }
+                    profile != null -> {
+                        val profileLink = profile.username.takeIf { it.isNotBlank() }
+                            ?.let { "https://fromchat.ru/@$it" }
+                            ?: "https://fromchat.ru/?u=${profile.id}"
+
                         Text(
                             text = displayName,
                             style = MaterialTheme.typography.titleLarge,

@@ -38,8 +38,8 @@ class DmPanel(
     private var otherProfilePicture: String? = null
 
     init {
-        updateState { it.copy(title = "Direct message") }
-        coroutineScope.launch(Dispatchers.IO) {
+        updateState { it.copy(title = "Direct message", profileUserId = otherUserId) }
+        coroutineScope.launch(Dispatchers.Default) {
             runCatching {
                 ApiClient.getProfileById(otherUserId)
             }.onSuccess { profile ->
@@ -52,7 +52,8 @@ class DmPanel(
                         titleAvatar = AvatarInfo(
                             displayName = displayName,
                             profilePictureUrl = otherProfilePicture
-                        )
+                        ),
+                        profileUserId = otherUserId
                     )
                 }
             }
@@ -105,7 +106,7 @@ class DmPanel(
             json.decodeFromJsonElement(DmEnvelope.serializer(), element)
         }.getOrNull() ?: return
         if (envelope.senderId != otherUserId && envelope.recipientId != otherUserId) return
-        scope.launch(Dispatchers.IO) {
+        scope.launch(Dispatchers.Default) {
             val plaintext = runCatching { decryptEnvelope(envelope, currentUserId) }.getOrNull()
             if (plaintext != null) {
                 addMessage(createMessage(envelope, plaintext))

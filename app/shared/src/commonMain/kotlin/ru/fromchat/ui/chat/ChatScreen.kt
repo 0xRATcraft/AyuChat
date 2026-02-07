@@ -1,10 +1,17 @@
 package ru.fromchat.ui.chat
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -44,7 +52,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -69,7 +80,6 @@ import ru.fromchat.api.WebSocketUpdatesData
 import ru.fromchat.back
 import ru.fromchat.core.Logger
 import ru.fromchat.ui.LocalNavController
-import ru.fromchat.ui.chat.Avatar
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalHazeMaterialsApi::class)
 @Composable
@@ -77,7 +87,14 @@ fun ChatScreen(
     panel: ChatPanel,
     currentUserId: Int?,
     modifier: Modifier = Modifier,
-    scrollToMessageId: Int? = null
+    scrollToMessageId: Int? = null,
+    onTitleClick: (() -> Unit)? = null,
+    hideTitleBarAvatar: Boolean = false,
+    onAvatarSlotBounds: ((Rect) -> Unit)? = null,
+    onTitleAvatarChange: ((AvatarInfo?) -> Unit)? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    sharedAvatarKey: Any? = null
 ) {
     var panelState by remember(panel) { mutableStateOf(panel.getState()) }
     
@@ -98,10 +115,15 @@ fun ChatScreen(
         Logger.d("ChatScreen", "Messages count changed: ${panelState.messages.size}")
     }
 
+    LaunchedEffect(panelState.titleAvatar) {
+        onTitleAvatarChange?.invoke(panelState.titleAvatar)
+    }
+
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val navController = LocalNavController.current
+    val profileUserId = panelState.profileUserId
     val hazeState = rememberHazeState(blurEnabled = true)
 
     val currentTypingUsers = panelState.typingUsers // Directly use from panelState
@@ -196,12 +218,26 @@ fun ChatScreen(
         }
     }
 
-    // Scroll to bottom when new messages arrive
+    // Scroll to bottom when new messages arrive.
+    // - Initial composition: jump (no animation) to avoid jank.
+    // - Subsequent messages: only auto-scroll if user is already near bottom.
+    var didInitialScroll by remember(panel) { mutableStateOf(false) }
     LaunchedEffect(panelState.messages.size) {
-        if (panelState.messages.isNotEmpty()) {
-            scope.launch {
-                listState.animateScrollToItem(panelState.messages.size - 1)
-            }
+        if (panelState.messages.isEmpty()) return@LaunchedEffect
+
+        val lastMessageIndex = panelState.messages.size // account for top spacer item at index 0
+
+        if (!didInitialScroll) {
+            didInitialScroll = true
+            listState.scrollToItem(lastMessageIndex)
+            return@LaunchedEffect
+        }
+
+        val lastVisibleIndex = listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+        val totalItems = listState.layoutInfo.totalItemsCount
+        val isNearBottom = lastVisibleIndex >= (totalItems - 3)
+        if (isNearBottom) {
+            listState.animateScrollToItem(lastMessageIndex)
         }
     }
 
@@ -210,16 +246,95 @@ fun ChatScreen(
         topBar = {
             TopAppBar(
                 title = {
+                    val titleInteractionSource = remember { MutableInteractionSource() }
+                    var titlePressed by remember { mutableStateOf(false) }
+                    LaunchedEffect(titleInteractionSource) {
+                        titleInteractionSource.interactions.collect { interaction ->
+                            when (interaction) {
+                                is PressInteraction.Press -> titlePressed = true
+                                is PressInteraction.Release -> titlePressed = false
+                            }
+                        }
+                    }
+                    val titleScale by animateFloatAsState(
+                        targetValue = if (titlePressed) 0.96f else 1f,
+                        animationSpec = tween(durationMillis = 100),
+                        label = "title_scale"
+                    )
                     Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer(
+                                scaleX = titleScale,
+                                scaleY = titleScale,
+                                transformOrigin = TransformOrigin.Center
+                            )
+                            .then(
+                                if (profileUserId != null && onTitleClick != null) {
+                                    Modifier.clickable(
+                                        interactionSource = titleInteractionSource,
+                                        indication = null
+                                    ) { onTitleClick() }
+                                } else Modifier
+                            ),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        panelState.titleAvatar?.let { avatar ->
-                            Avatar(
-                                profilePictureUrl = avatar.profilePictureUrl,
-                                displayName = avatar.displayName,
-                                size = 36.dp
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
+                        when {
+                            sharedAvatarKey != null && sharedTransitionScope != null && animatedVisibilityScope != null -> {
+                                val avatar = panelState.titleAvatar
+                                val displayName = avatar?.displayName?.takeIf { it.isNotBlank() }
+                                    ?: panelState.title.takeIf { it.isNotBlank() }
+                                    ?: "?"
+                                with(sharedTransitionScope) {
+                                    Avatar(
+                                        profilePictureUrl = avatar?.profilePictureUrl,
+                                        displayName = displayName,
+                                        size = 36.dp,
+                                        modifier = Modifier
+                                            .sharedElement(
+                                                rememberSharedContentState(key = sharedAvatarKey),
+                                                animatedVisibilityScope = animatedVisibilityScope
+                                            )
+                                            .size(36.dp)
+                                    )
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            !hideTitleBarAvatar -> {
+                                panelState.titleAvatar?.let { avatar ->
+                                    Avatar(
+                                        profilePictureUrl = avatar.profilePictureUrl,
+                                        displayName = avatar.displayName,
+                                        size = 36.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                            }
+                            onAvatarSlotBounds != null -> {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .onGloballyPositioned { coords ->
+                                            val pos = coords.positionInRoot()
+                                            val sz = coords.size
+                                            onAvatarSlotBounds(
+                                                Rect(
+                                                    pos.x,
+                                                    pos.y,
+                                                    pos.x + sz.width.toFloat(),
+                                                    pos.y + sz.height.toFloat()
+                                                )
+                                            )
+                                        }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            else -> {
+                                panelState.titleAvatar?.let {
+                                    Spacer(modifier = Modifier.width(36.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                }
+                            }
                         }
 
                         Column(Modifier.fillMaxWidth()) {

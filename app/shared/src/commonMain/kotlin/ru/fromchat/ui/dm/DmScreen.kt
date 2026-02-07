@@ -1,32 +1,31 @@
 package ru.fromchat.ui.dm
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
-import kotlinx.coroutines.launch
+import androidx.compose.ui.geometry.Rect
 import ru.fromchat.api.ApiClient
 import ru.fromchat.ui.chat.ChatScreen
 
 @Composable
 fun DmScreen(
-    otherUserId: Int,
-    modifier: Modifier = Modifier
+    panel: DmPanel,
+    modifier: Modifier = Modifier,
+    onTitleClick: (() -> Unit)? = null,
+    hideTitleBarAvatar: Boolean = false,
+    onAvatarSlotBounds: ((Rect) -> Unit)? = null,
+    onTitleAvatarChange: ((ru.fromchat.ui.chat.AvatarInfo?) -> Unit)? = null,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    sharedAvatarKey: Any? = null
 ) {
-    val coroutineScope = rememberCoroutineScope()
     val currentUserId = ApiClient.user?.id
-    val panel = remember(otherUserId) {
-        DmPanel(
-            otherUserId = otherUserId,
-            coroutineScope = coroutineScope,
-            currentUserId = currentUserId
-        )
-    }
 
-    LaunchedEffect(otherUserId) {
-        coroutineScope.launch {
+    LaunchedEffect(panel) {
+        if (panel.getState().messages.isEmpty()) {
             panel.loadMessages()
         }
     }
@@ -34,6 +33,13 @@ fun DmScreen(
     ChatScreen(
         panel = panel,
         currentUserId = currentUserId,
-        modifier = modifier.fillMaxSize()
+        modifier = modifier.fillMaxSize(),
+        onTitleClick = onTitleClick,
+        hideTitleBarAvatar = hideTitleBarAvatar,
+        onAvatarSlotBounds = onAvatarSlotBounds,
+        onTitleAvatarChange = onTitleAvatarChange,
+        sharedTransitionScope = sharedTransitionScope,
+        animatedVisibilityScope = animatedVisibilityScope,
+        sharedAvatarKey = sharedAvatarKey
     )
 }

@@ -28,7 +28,7 @@ import ru.fromchat.ui.auth.LoginScreen
 import ru.fromchat.ui.auth.RegisterScreen
 import ru.fromchat.ui.chat.PublicChatScreen
 import ru.fromchat.ui.debug.DebugApiScreen
-import ru.fromchat.ui.dm.DmScreen
+import ru.fromchat.ui.dm.DmContainerScreen
 import ru.fromchat.ui.main.MainScreen
 import ru.fromchat.ui.profile.ProfileScreen
 import ru.fromchat.ui.setup.ServerConfigScreen
@@ -177,7 +177,7 @@ fun App(scrollToMessageId: Int? = null, startAtPublicChat: Boolean = false) {
                     }
 
                     composable("profile/{userId}") { backStackEntry ->
-                        val userId = backStackEntry.arguments?.getString("userId")?.toIntOrNull()
+                        val userId = backStackEntry.savedStateHandle.get<String>("userId")?.toIntOrNull()
                         ProfileScreen(
                             userId = userId,
                             onBack = { navController.navigateUp() },
@@ -186,9 +186,10 @@ fun App(scrollToMessageId: Int? = null, startAtPublicChat: Boolean = false) {
                     }
 
                     composable("dm/{otherUserId}") { backStackEntry ->
-                        val otherUserId = backStackEntry.arguments?.getString("otherUserId")?.toIntOrNull() ?: 0
-                        DmScreen(
-                            otherUserId = otherUserId
+                        val otherUserId = backStackEntry.savedStateHandle.get<String>("otherUserId")?.toIntOrNull() ?: 0
+                        DmContainerScreen(
+                            otherUserId = otherUserId,
+                            onBack = { navController.navigateUp() }
                         )
                     }
 
