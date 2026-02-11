@@ -176,6 +176,24 @@ object ApiClient {
             }
             .body()
 
+    suspend fun checkSimilarity(userId: Int): SimilarityResult? =
+        runCatching {
+            http
+                .get("${Config.apiBaseUrl}/user/check-similarity/$userId") {
+                    contentType(ContentType.Application.Json)
+                }
+                .body<SimilarityResult>()
+        }.getOrNull()
+
+    suspend fun verifyUser(userId: Int): VerifyResponse? =
+        runCatching {
+            http
+                .post("${Config.apiBaseUrl}/user/$userId/verify") {
+                    contentType(ContentType.Application.Json)
+                }
+                .body<VerifyResponse>()
+        }.getOrNull()
+
     suspend fun getDmConversations(): List<DmConversation> =
         http
             .get("${Config.apiBaseUrl}/dm/conversations") {
@@ -425,6 +443,66 @@ object ApiClient {
                         scheme = "Bearer",
                         credentials = getTokenSafely()
                     )
+                )
+            )
+        }
+    }
+
+    suspend fun sendDmTyping(recipientId: Int) {
+        runCatching {
+            WebSocketManager.send(
+                WebSocketMessage(
+                    type = "dmTyping",
+                    credentials = WebSocketCredentials(
+                        scheme = "Bearer",
+                        credentials = getTokenSafely()
+                    ),
+                    data = json.encodeToJsonElement(DmTypingData(recipientId = recipientId))
+                )
+            )
+        }
+    }
+
+    suspend fun sendStopDmTyping(recipientId: Int) {
+        runCatching {
+            WebSocketManager.send(
+                WebSocketMessage(
+                    type = "stopDmTyping",
+                    credentials = WebSocketCredentials(
+                        scheme = "Bearer",
+                        credentials = getTokenSafely()
+                    ),
+                    data = json.encodeToJsonElement(DmTypingData(recipientId = recipientId))
+                )
+            )
+        }
+    }
+
+    suspend fun sendSubscribeStatus(userId: Int) {
+        runCatching {
+            WebSocketManager.send(
+                WebSocketMessage(
+                    type = "subscribeStatus",
+                    credentials = WebSocketCredentials(
+                        scheme = "Bearer",
+                        credentials = getTokenSafely()
+                    ),
+                    data = json.encodeToJsonElement(SubscribeStatusData(userId = userId))
+                )
+            )
+        }
+    }
+
+    suspend fun sendUnsubscribeStatus(userId: Int) {
+        runCatching {
+            WebSocketManager.send(
+                WebSocketMessage(
+                    type = "unsubscribeStatus",
+                    credentials = WebSocketCredentials(
+                        scheme = "Bearer",
+                        credentials = getTokenSafely()
+                    ),
+                    data = json.encodeToJsonElement(SubscribeStatusData(userId = userId))
                 )
             )
         }

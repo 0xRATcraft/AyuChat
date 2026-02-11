@@ -1,6 +1,8 @@
 package com.pr0gramm3r101.utils
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.composed
 import androidx.navigation.NavController
 
 /**
@@ -34,10 +36,12 @@ fun NavController.navigateAndWipeBackStack(route: String, launchSingleTop: Boole
 
 inline fun Modifier.conditional(
     condition: Boolean,
-    `else`: Modifier.(Modifier) -> Modifier = { Modifier },
-    `if`: Modifier.(Modifier) -> Modifier
-) = if (condition) {
-    this + `if`(this)
-} else {
-    this + `else`(this)
+    crossinline `else`: @Composable Modifier.(Modifier) -> Modifier = { Modifier },
+    crossinline `if`: @Composable Modifier.(Modifier) -> Modifier
+) = composed {
+    if (condition) {
+        this + `if`(this)
+    } else {
+        this + `else`(this)
+    }
 }

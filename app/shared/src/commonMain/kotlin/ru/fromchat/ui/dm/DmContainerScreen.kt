@@ -8,10 +8,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import ru.fromchat.ui.BackHandler
@@ -33,6 +34,15 @@ fun DmContainerScreen(
     val panel = remember(otherUserId) {
         DmPanelCache.getOrCreate(otherUserId, scope)
     }
+    var panelState by remember(panel) { mutableStateOf(panel.getState()) }
+
+    LaunchedEffect(panel) {
+        panel.setOnStateChange { panelState = it }
+        panelState = panel.getState()
+    }
+
+    val initialDisplayName = panelState.titleAvatar?.displayName?.takeIf { it.isNotBlank() }
+        ?: panelState.title.takeIf { it.isNotBlank() }
 
     BackHandler(enabled = showProfile) {
         haptic(HapticFeedbackEvent.ProfileClosed)
@@ -77,7 +87,8 @@ fun DmContainerScreen(
                     modifier = Modifier.fillMaxSize(),
                     sharedTransitionScope = this@SharedTransitionLayout,
                     animatedVisibilityScope = this@AnimatedContent,
-                    sharedAvatarKey = sharedAvatarKey
+                    sharedAvatarKey = sharedAvatarKey,
+                    initialDisplayName = initialDisplayName
                 )
             }
         }

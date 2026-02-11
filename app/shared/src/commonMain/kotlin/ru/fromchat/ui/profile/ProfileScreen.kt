@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,6 +43,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,7 +58,11 @@ import androidx.compose.ui.unit.dp
 import com.pr0gramm3r101.components.Category
 import com.pr0gramm3r101.components.CategoryDefaults
 import com.pr0gramm3r101.components.ListItem
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.fromchat.api.ApiClient
+import ru.fromchat.api.ProfileCache
 import ru.fromchat.api.UserProfile
 import ru.fromchat.ui.chat.Avatar
 import ru.fromchat.ui.scaleOnPress
@@ -79,16 +85,25 @@ fun ProfileScreen(
     modifier: Modifier = Modifier,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
-    sharedAvatarKey: Any? = null
+    sharedAvatarKey: Any? = null,
+    initialDisplayName: String? = null
 ) {
     val clipboardManager: ClipboardManager = LocalClipboardManager.current
-    var state by remember { mutableStateOf(ProfileUiState()) }
-
     val targetUserId = userId.takeIf { it != null && it > 0 }
     val fetchKey = targetUserId ?: 0
 
+    var state by remember(fetchKey) {
+        val cached = targetUserId?.let { ProfileCache.get(it) }
+        mutableStateOf(
+            ProfileUiState(
+                profile = cached,
+                isLoading = cached == null,
+                error = null
+            )
+        )
+    }
+
     LaunchedEffect(fetchKey) {
-        state = state.copy(isLoading = true, error = null)
         runCatching {
             if (targetUserId == null) {
                 ApiClient.getOwnProfile()
@@ -96,9 +111,13 @@ fun ProfileScreen(
                 ApiClient.getProfileById(targetUserId)
             }
         }.onSuccess { profile ->
-            state = state.copy(profile = profile, isLoading = false)
+            ProfileCache.put(profile)
+            state = state.copy(profile = profile, isLoading = false, error = null)
         }.onFailure {
-            state = state.copy(error = it.message ?: "Unable to load profile", isLoading = false)
+            state = state.copy(
+                error = if (state.profile == null) it.message ?: "Unable to load profile" else null,
+                isLoading = false
+            )
         }
     }
 
@@ -136,6 +155,7 @@ fun ProfileScreen(
             val profile = state.profile
             val displayName = profile?.displayName?.takeIf { it.isNotBlank() }
                 ?: profile?.username?.takeIf { it.isNotBlank() }
+                ?: initialDisplayName?.takeIf { it.isNotBlank() }
                 ?: "?"
 
             val useSharedAvatar = sharedTransitionScope != null &&
@@ -151,11 +171,10 @@ fun ProfileScreen(
             ) {
                 when {
                     useSharedAvatar -> {
-                        with(sharedTransitionScope!!) {
+                        with(sharedTransitionScope) {
                             Avatar(
                                 profilePictureUrl = profile?.profilePicture,
                                 displayName = displayName,
-                                size = 128.dp,
                                 modifier = Modifier
                                     .padding(top = 16.dp)
                                     .sharedElement(
@@ -171,8 +190,9 @@ fun ProfileScreen(
                         Avatar(
                             profilePictureUrl = profile?.profilePicture,
                             displayName = displayName,
-                            size = 128.dp,
-                            modifier = Modifier.padding(top = 16.dp)
+                            modifier = Modifier
+                                .padding(top = 16.dp)
+                                .size(128.dp)
                         )
                         Spacer(modifier = Modifier.height(12.dp))
                     }
@@ -216,11 +236,23 @@ fun ProfileScreen(
                         val profileLink = profile.username.takeIf { it.isNotBlank() }
                             ?.let { "https://fromchat.ru/@$it" }
                             ?: "https://fromchat.ru/?u=${profile.id}"
+                        val scope = rememberCoroutineScope()
 
-                        Text(
-                            text = displayName,
-                            style = MaterialTheme.typography.titleLarge
-                        )
+                        val verificationLabel = if (profile.verified == true) "Verified account" else "Click to verify"
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = displayName,
+                                style = MaterialTheme.typography.titleLarge
+                            )
+                            StatusBadge(
+                                verified = profile.verified,
+                                userId = profile.id
+                            )
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = "@${profile.username}",
@@ -377,6 +409,36 @@ fun ProfileScreen(
                                     }
                                 }
                             )
+
+                            if (profile.verified == true || ApiClient.user?.id == 1) {
+                                val onVerifyToggle: () -> Unit = {
+                                    scope.launch {
+                                        val result = withContext(Dispatchers.Default) {
+                                            runCatching { ApiClient.verifyUser(profile.id) }.getOrNull()
+                                        }
+                                        result?.verified?.let { newVerified ->
+                                            val updated = state.profile?.copy(verified = newVerified)
+                                            state = state.copy(profile = updated)
+                                            updated?.let { ProfileCache.put(it) }
+                                        }
+                                    }
+                                }
+
+                                ListItem(
+                                    headline = "Verification",
+                                    supportingText = verificationLabel,
+                                    leadingContent = {
+                                        Icon(
+                                            imageVector = Icons.Filled.Verified,
+                                            contentDescription = null
+                                        )
+                                    },
+                                    divider = true,
+                                    dividerColor = CategoryDefaults.dividerColor,
+                                    dividerThickness = CategoryDefaults.dividerThickness,
+                                    onClick = if (ApiClient.user?.id == 1) onVerifyToggle else null
+                                )
+                            }
                         }
                     }
                 }

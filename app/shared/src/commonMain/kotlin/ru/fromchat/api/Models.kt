@@ -270,6 +270,16 @@ data class WebSocketDeleteMessageRequest(
 )
 
 @Serializable
+data class DmTypingData(
+    @SerialName("recipientId") val recipientId: Int
+)
+
+@Serializable
+data class SubscribeStatusData(
+    @SerialName("userId") val userId: Int
+)
+
+@Serializable
 data class BackupBlobResponse(
     val blob: String?
 )
@@ -277,4 +287,15 @@ data class BackupBlobResponse(
 @Serializable
 data class BackupBlobRequest(
     val blob: String
+)
+
+@Serializable
+data class SimilarityResult(
+    @SerialName("isSimilar") val isSimilar: Boolean,
+    @SerialName("similarTo") val similarTo: String? = null
+)
+
+@Serializable
+data class VerifyResponse(
+    val verified: Boolean
 )

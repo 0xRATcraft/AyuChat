@@ -38,6 +38,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,10 +64,13 @@ import dev.chrisbanes.haze.materials.HazeMaterials
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.compose.resources.stringResource
 import ru.fromchat.Res
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.Message
+import ru.fromchat.api.UserStatusStore
 import ru.fromchat.api.WebSocketManager
 import ru.fromchat.api.WebSocketMessage
 import ru.fromchat.api.WebSocketUpdatesData
@@ -76,6 +80,7 @@ import ru.fromchat.ui.HapticFeedbackEvent
 import ru.fromchat.ui.LocalNavController
 import ru.fromchat.ui.rememberHapticFeedback
 import ru.fromchat.ui.scaleOnPress
+import ru.fromchat.utils.formatLastSeen
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalHazeMaterialsApi::class)
 @Composable
@@ -124,8 +129,22 @@ fun ChatScreen(
     val hazeState = rememberHazeState(blurEnabled = true)
 
     val currentTypingUsers = panelState.typingUsers // Directly use from panelState
+    val statusMap by UserStatusStore.status.collectAsState()
     LaunchedEffect(currentTypingUsers) {
         Logger.d("ChatScreen", "currentTypingUsers updated (from panelState): ${currentTypingUsers.map { it.username }}")
+    }
+
+    // Subscribe to other user's status when DM is visible; unsubscribe on leave
+    LaunchedEffect(panelState.profileUserId) {
+        val userId = panelState.profileUserId
+        if (userId != null) {
+            runCatching { ApiClient.sendSubscribeStatus(userId) }
+            try {
+                kotlinx.coroutines.awaitCancellation()
+            } finally {
+                runCatching { ApiClient.sendUnsubscribeStatus(userId) }
+            }
+        }
     }
 
     // Scroll to specific message when requested (e.g., from notification click)
@@ -184,9 +203,15 @@ fun ChatScreen(
                                 data = update.data
                             )
                             when (update.type) {
+                                "statusUpdate" -> update.data?.jsonObject?.let { data ->
+                                    val userId = data["userId"]?.jsonPrimitive?.content?.toIntOrNull()
+                                    val online = data["online"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+                                    val lastSeen = data["lastSeen"]?.jsonPrimitive?.content
+                                    if (userId != null) UserStatusStore.update(userId, online, lastSeen)
+                                }
                                 "newMessage", "messageEdited", "messageDeleted",
                                 "dmNew", "dmEdited", "dmDeleted",
-                                "typing", "stopTyping", "statusUpdate", "suspended", "account_deleted" -> {
+                                "typing", "stopTyping", "dmTyping", "stopDmTyping", "suspended", "account_deleted" -> {
                                     Logger.d("ChatScreen", "Launching handleWebSocketMessage for ${update.type}")
                                     scope.launch {
                                         try {
@@ -203,7 +228,14 @@ fun ChatScreen(
                         e.printStackTrace()
                     }
                 }
-                "newMessage", "messageEdited", "messageDeleted", "dmNew", "dmEdited", "dmDeleted" -> {
+                "statusUpdate" -> message.data?.jsonObject?.let { data ->
+                    val userId = data["userId"]?.jsonPrimitive?.content?.toIntOrNull()
+                    val online = data["online"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() ?: false
+                    val lastSeen = data["lastSeen"]?.jsonPrimitive?.content
+                    if (userId != null) UserStatusStore.update(userId, online, lastSeen)
+                }
+                "newMessage", "messageEdited", "messageDeleted", "dmNew", "dmEdited", "dmDeleted",
+                "dmTyping", "stopDmTyping" -> {
                     scope.launch {
                         panel.handleWebSocketMessage(message)
                     }
@@ -264,7 +296,6 @@ fun ChatScreen(
                                     Avatar(
                                         profilePictureUrl = avatar?.profilePictureUrl,
                                         displayName = displayName,
-                                        size = 36.dp,
                                         modifier = Modifier
                                             .sharedElement(
                                                 rememberSharedContentState(key = sharedAvatarKey),
@@ -280,7 +311,7 @@ fun ChatScreen(
                                     Avatar(
                                         profilePictureUrl = avatar.profilePictureUrl,
                                         displayName = avatar.displayName,
-                                        size = 36.dp
+                                        modifier = Modifier.size(36.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                 }
@@ -330,6 +361,19 @@ fun ChatScreen(
                                         typingUsers = currentTypingUsers.map { it.username },
                                         modifier = Modifier.padding(top = 2.dp)
                                     )
+                                } else if (panelState.profileUserId != null) {
+                                    val userStatus = statusMap[panelState.profileUserId]
+                                    if (userStatus != null) {
+                                        val statusText = formatLastSeen(userStatus.online, userStatus.lastSeen)
+                                        if (statusText.isNotEmpty()) {
+                                            Text(
+                                                text = statusText,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }

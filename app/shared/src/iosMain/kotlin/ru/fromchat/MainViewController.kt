@@ -5,4 +5,3 @@ import ru.fromchat.ui.App
 
 @Suppress("unused")
 fun MainViewController() = ComposeUIViewController { App() }
-

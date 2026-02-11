@@ -87,3 +87,50 @@ class PublicChatTypingHandler(
     }
 }
 
+/**
+ * Typing handler for DM: sends dmTyping/stopDmTyping with recipientId.
+ */
+class DmTypingHandler(
+    private val scope: CoroutineScope,
+    private val recipientId: Int
+) : TypingHandler {
+    private var stopTypingJob: Job? = null
+    private val _typingUsers = MutableStateFlow<List<TypingUser>>(emptyList())
+    override val typingUsers = _typingUsers.asStateFlow()
+
+    override fun sendTyping() {
+        scope.launch {
+            runCatching { ApiClient.sendDmTyping(recipientId) }
+        }
+        stopTypingJob?.cancel()
+        stopTypingJob = scope.launch {
+            delay(3.seconds)
+            stopTyping()
+        }
+    }
+
+    override fun stopTyping() {
+        stopTypingJob?.cancel()
+        stopTypingJob = null
+        scope.launch {
+            runCatching { ApiClient.sendStopDmTyping(recipientId) }
+        }
+    }
+
+    override fun handleTypingEvent(userId: Int, username: String) {
+        _typingUsers.update { currentUsers ->
+            if (currentUsers.none { it.userId == userId }) {
+                currentUsers + TypingUser(userId, username)
+            } else {
+                currentUsers
+            }
+        }
+    }
+
+    override fun handleStopTypingEvent(userId: Int) {
+        _typingUsers.update { currentUsers ->
+            currentUsers.filter { it.userId != userId }
+        }
+    }
+}
+

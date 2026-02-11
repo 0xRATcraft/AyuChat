@@ -2,9 +2,6 @@ package ru.fromchat.ui.dm
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -14,11 +11,13 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.DmEnvelope
+import ru.fromchat.api.ProfileCache
 import ru.fromchat.api.Message
 import ru.fromchat.api.WebSocketMessage
 import ru.fromchat.core.Logger
 import ru.fromchat.crypto.decryptEnvelope
 import ru.fromchat.ui.chat.ChatPanel
+import ru.fromchat.ui.chat.DmTypingHandler
 import ru.fromchat.ui.chat.TypingHandler
 import ru.fromchat.ui.chat.TypingUser
 import ru.fromchat.ui.chat.AvatarInfo
@@ -32,17 +31,23 @@ class DmPanel(
     currentUserId = currentUserId,
     scope = coroutineScope
 ) {
-    private val typingHandler = NoopTypingHandler()
+    private val typingHandler = DmTypingHandler(coroutineScope, otherUserId)
     private val json = Json { ignoreUnknownKeys = true }
     private var otherDisplayName: String = "User $otherUserId"
     private var otherProfilePicture: String? = null
 
     init {
         updateState { it.copy(title = "Direct message", profileUserId = otherUserId) }
+        coroutineScope.launch {
+            typingHandler.typingUsers.collect { users ->
+                updateState { it.copy(typingUsers = users) }
+            }
+        }
         coroutineScope.launch(Dispatchers.Default) {
             runCatching {
                 ApiClient.getProfileById(otherUserId)
             }.onSuccess { profile ->
+                ProfileCache.put(profile)
                 val displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: profile.username
                 otherDisplayName = displayName
                 otherProfilePicture = profile.profilePicture
@@ -89,12 +94,36 @@ class DmPanel(
     override suspend fun handleWebSocketMessage(message: WebSocketMessage) {
         when (message.type) {
             "dmNew" -> message.data?.let { processEnvelope(it) }
+            "dmTyping" -> message.data?.let { data ->
+                val obj = data.jsonObject
+                val userId = obj["userId"]?.jsonPrimitive?.content?.toIntOrNull()
+                val username = obj["username"]?.jsonPrimitive?.content ?: ""
+                if (userId != null) typingHandler.handleTypingEvent(userId, username)
+            }
+            "stopDmTyping" -> message.data?.let { data ->
+                val obj = data.jsonObject
+                val userId = obj["userId"]?.jsonPrimitive?.content?.toIntOrNull()
+                if (userId != null) typingHandler.handleStopTypingEvent(userId)
+            }
             "updates" -> {
                 val updates = message.data?.jsonObject?.get("updates")?.jsonArray ?: return
                 for (update in updates) {
                     val obj = update.jsonObject
-                    if (obj["type"]?.jsonPrimitive?.content == "dmNew") {
-                        obj["data"]?.let { processEnvelope(it) }
+                    val type = obj["type"]?.jsonPrimitive?.content
+                    when (type) {
+                        "dmNew" -> obj["data"]?.let { processEnvelope(it) }
+                        "dmTyping" -> obj["data"]?.let { data ->
+                            val dataObj = data.jsonObject
+                            val userId = dataObj["userId"]?.jsonPrimitive?.content?.toIntOrNull()
+                            val username = dataObj["username"]?.jsonPrimitive?.content ?: ""
+                            if (userId != null) typingHandler.handleTypingEvent(userId, username)
+                        }
+                        "stopDmTyping" -> obj["data"]?.let { data ->
+                            val dataObj = data.jsonObject
+                            val userId = dataObj["userId"]?.jsonPrimitive?.content?.toIntOrNull()
+                            if (userId != null) typingHandler.handleStopTypingEvent(userId)
+                        }
+                        else -> {}
                     }
                 }
             }
@@ -146,13 +175,4 @@ class DmPanel(
 
     override val showUsernamesInMessages: Boolean
         get() = false
-}
-
-private class NoopTypingHandler : TypingHandler {
-    private val _typingUsers = MutableStateFlow<List<TypingUser>>(emptyList())
-    override val typingUsers: StateFlow<List<TypingUser>> = _typingUsers.asStateFlow()
-    override fun sendTyping() {}
-    override fun stopTyping() {}
-    override fun handleTypingEvent(userId: Int, username: String) {}
-    override fun handleStopTypingEvent(userId: Int) {}
 }

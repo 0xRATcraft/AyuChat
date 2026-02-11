@@ -1,11 +1,10 @@
 package ru.fromchat.ui.chat
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,11 +13,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import ru.fromchat.core.config.Config
 
@@ -26,19 +29,17 @@ import ru.fromchat.core.config.Config
 fun Avatar(
     profilePictureUrl: String?,
     displayName: String,
-    size: Dp = 32.dp,
     modifier: Modifier = Modifier
 ) {
     var imageLoadFailed by remember { mutableStateOf(false) }
-    
+
     val gradient = remember(displayName) { generateGradientFromName(displayName) }
     val initials = remember(displayName) { getInitials(displayName) }
-    
+    val textMeasurer = rememberTextMeasurer()
+
     Box(
         modifier = modifier
-            .size(size)
-            .clip(CircleShape)
-            .background(gradient),
+            .clip(CircleShape),
         contentAlignment = Alignment.Center
     ) {
         if (profilePictureUrl != null && !imageLoadFailed) {
@@ -47,34 +48,55 @@ fun Avatar(
             } else {
                 "${Config.apiBaseUrl}$profilePictureUrl"
             }
-            
+
             AsyncImage(
                 model = fullUrl,
                 contentDescription = displayName,
                 modifier = Modifier
-                    .size(size)
+                    .fillMaxSize()
                     .clip(CircleShape),
                 contentScale = ContentScale.Crop,
-                onError = {
-                    imageLoadFailed = true
-                },
-                onSuccess = {
-                    imageLoadFailed = false
-                }
+                onError = { imageLoadFailed = true },
+                onSuccess = { imageLoadFailed = false }
             )
         }
-        
-        // Fallback initials
+
         if (imageLoadFailed || profilePictureUrl == null) {
-            Text(
-                text = initials,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White,
-                modifier = Modifier
-            )
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val radius = size.minDimension / 2f
+                // Background gradient circle
+                drawCircle(
+                    brush = gradient,
+                    radius = radius,
+                    center = center
+                )
+
+                // Letters sized relative to radius
+                val fontPx = radius * 0.7f
+                val fontSp = (fontPx / density).sp
+
+                val textLayout = textMeasurer.measure(
+                    text = initials,
+                    style = TextStyle(
+                        color = Color.White,
+                        fontSize = fontSp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                )
+
+                val textWidth = textLayout.size.width.toFloat()
+                val textHeight = textLayout.size.height.toFloat()
+                val topLeft = Offset(
+                    x = (size.width - textWidth) / 2f,
+                    y = (size.height - textHeight) / 2f
+                )
+
+                drawText(
+                    textLayoutResult = textLayout,
+                    topLeft = topLeft
+                )
+            }
         }
     }
 }
-
 
