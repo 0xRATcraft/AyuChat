@@ -208,6 +208,8 @@ class DmPanel(
 
     override fun getTypingHandler(): TypingHandler = typingHandler
 
+    override fun getRecipientId(): Int? = otherUserId
+
     override val showUsernamesInMessages: Boolean
         get() = false
 }

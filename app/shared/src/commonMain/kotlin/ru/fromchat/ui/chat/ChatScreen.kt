@@ -62,6 +62,7 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
 import dev.chrisbanes.haze.rememberHazeState
+import kotlin.time.Clock
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -69,6 +70,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import org.jetbrains.compose.resources.stringResource
 import ru.fromchat.Res
 import ru.fromchat.api.ApiClient
+import ru.fromchat.api.AttachmentUploadJob
+import ru.fromchat.api.AttachmentUploadQueue
 import ru.fromchat.api.Message
 import ru.fromchat.api.UserStatusStore
 import ru.fromchat.api.WebSocketManager
@@ -426,7 +429,7 @@ fun ChatScreen(
                 ChatInput(
                     text = inputText,
                     onTextChange = { inputText = it },
-                    onSend = { text ->
+                    onSend = { text, attachments ->
                         if (editingMessage != null) {
                             scope.launch {
                                 panel.handleEditMessage(editingMessage!!.id, text)
@@ -434,7 +437,25 @@ fun ChatScreen(
                             }
                         } else {
                             scope.launch {
-                                panel.sendMessageWithImmediateDisplay(text, replyTo?.id)
+                                val replyToId = replyTo?.id
+                                val recipientId = panel.getRecipientId()
+                                if (attachments.isNotEmpty() && recipientId != null) {
+                                    val plaintext = text.ifBlank { "" }
+                                    attachments.forEach { att ->
+                                        AttachmentUploadQueue.enqueue(
+                                            AttachmentUploadJob(
+                                                jobId = "dm_${Clock.System.now().toEpochMilliseconds()}_${att.id}",
+                                                fileUri = att.uri,
+                                                filename = att.filename,
+                                                recipientId = recipientId,
+                                                plaintext = plaintext.ifBlank { att.filename },
+                                                replyToId = replyToId
+                                            )
+                                        )
+                                    }
+                                } else if (text.isNotBlank()) {
+                                    panel.sendMessageWithImmediateDisplay(text, replyToId)
+                                }
                                 replyTo = null
                                 haptic(HapticFeedbackEvent.MessageSent)
                             }
@@ -449,7 +470,8 @@ fun ChatScreen(
                         editingMessage = null
                         inputText = ""
                     },
-                    hazeState = hazeState
+                    hazeState = hazeState,
+                    recipientId = panel.getRecipientId()
                 )
             }
         }

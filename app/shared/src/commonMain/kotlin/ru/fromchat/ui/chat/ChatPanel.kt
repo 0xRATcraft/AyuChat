@@ -317,6 +317,9 @@ abstract class ChatPanel(
     abstract fun showCallButton(): Boolean
     abstract fun getTypingHandler(): TypingHandler
 
+    /** DM recipient ID for attachment uploads; null for non-DM panels. */
+    open fun getRecipientId(): Int? = null
+
     open val showUsernamesInMessages: Boolean
         get() = true
 }
