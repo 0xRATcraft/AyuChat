@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.cinterop.ExperimentalForeignApi::class)
+
 package com.pr0gramm3r101.utils.files
 
 import kotlinx.cinterop.ExperimentalForeignApi

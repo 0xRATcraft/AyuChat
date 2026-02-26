@@ -7,8 +7,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.rememberTransformableState
-import androidx.compose.foundation.gestures.transformable
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -16,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.aspectRatio
@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.systemGestures
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
@@ -38,14 +39,18 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntOffset
@@ -54,8 +59,10 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -63,7 +70,10 @@ import kotlinx.datetime.TimeZone
 import kotlinx.datetime.toLocalDateTime
 import ru.fromchat.api.Message
 import ru.fromchat.ui.BackHandler
+import ru.fromchat.ui.LocalSystemBarsVisibility
+import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.time.ExperimentalTime
 import kotlin.time.Instant
@@ -131,19 +141,33 @@ fun ImageFullscreenPreview(
     var dismissRequested by remember { mutableStateOf(false) }
     val backgroundAlpha = remember { Animatable(1f) }
     var hasPlayedOpenAnimation by remember(thumbnailBounds) { mutableStateOf(thumbnailBounds == null) }
+    var isOpenAnimationPlaying by remember { mutableStateOf(false) }
+    var dismissProgress by remember { mutableStateOf(0f) }
     val isInitialOpenState = thumbnailBounds != null && !hasPlayedOpenAnimation
-    val effectiveBackgroundAlpha = if (isInitialOpenState) 0f else backgroundAlpha.value
-    val effectiveMenusVisible = if (isInitialOpenState) false else menusVisible
+    val isTransitioning = isOpenAnimationPlaying || dismissRequested
+    val effectiveMenusVisible = if (isInitialOpenState) false else menusVisible && dismissProgress < 0.01f
+    var effectiveBgAlpha by remember { mutableStateOf(1f) }
 
     BackHandler(enabled = true) {
         dismissRequested = true
     }
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = effectiveBackgroundAlpha))
-    ) {
+    val systemBarsVisibility = LocalSystemBarsVisibility.current
+    LaunchedEffect(menusVisible) {
+        systemBarsVisibility?.invoke(menusVisible)
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            systemBarsVisibility?.invoke(true)
+        }
+    }
+
+    Box(modifier = modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawBehind { drawRect(Color.Black, alpha = effectiveBgAlpha) }
+        )
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
@@ -158,6 +182,11 @@ fun ImageFullscreenPreview(
 
             when (val model = imageModel) {
                 null -> {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                    )
                     LaunchedEffect(dismissRequested) {
                         if (dismissRequested) onDismiss()
                     }
@@ -187,18 +216,28 @@ fun ImageFullscreenPreview(
                     }
                     var scale by remember { mutableStateOf(initial.scale) }
                     var offset by remember { mutableStateOf(Offset(initial.offsetX, initial.offsetY)) }
+                    var isDragToDismiss by remember { mutableStateOf(false) }
                     val scaleAnim = remember { Animatable(initial.scale) }
                     val offsetXAnim = remember { Animatable(initial.offsetX) }
                     val offsetYAnim = remember { Animatable(initial.offsetY) }
                     val cornerRadiusAnim = remember { Animatable(initial.cornerRadius) }
-                    val state = rememberTransformableState { zoomChange, offsetChange, _ ->
-                        scale = (scale * zoomChange).coerceIn(1f, 12f)
-                        offset += offsetChange
-                    }
+                    val density = LocalDensity.current
+                    val bottomInsetPx = WindowInsets.safeDrawing.getBottom(density)
+                    val backGestureEdgeWidthPx: Float? = WindowInsets.safeDrawing
+                        .getLeft(density, androidx.compose.ui.unit.LayoutDirection.Ltr)
+                        .toFloat()
+                        .takeIf { it > 0f }
+                    var isTransformInProgress by remember { mutableStateOf(false) }
+                    var gestureEndJob by remember { mutableStateOf<Job?>(null) }
+                    val scope = rememberCoroutineScope()
+                    var lastStableScale by remember { mutableStateOf(initial.scale) }
+                    var lastStableOffsetX by remember { mutableStateOf(initial.offsetX) }
+                    var lastStableOffsetY by remember { mutableStateOf(initial.offsetY) }
 
                     LaunchedEffect(thumbnailBounds) {
                         if (thumbnailBounds != null && !hasPlayedOpenAnimation) {
                             hasPlayedOpenAnimation = true
+                            isOpenAnimationPlaying = true
 
                             val fullTop = (containerHeight - contentHeightAtScale1) / 2f
                             val fullCenter = Offset(
@@ -228,19 +267,29 @@ fun ImageFullscreenPreview(
                                 launch { backgroundAlpha.animateTo(1f, tween(250)) }
                             }
 
+                            isOpenAnimationPlaying = false
                             menusVisible = true
                         }
                     }
 
+                    SideEffect {
+                        if (!isTransformInProgress) {
+                            lastStableScale = scaleAnim.value
+                            lastStableOffsetX = offsetXAnim.value
+                            lastStableOffsetY = offsetYAnim.value
+                        }
+                    }
                     LaunchedEffect(dismissRequested) {
                         if (!dismissRequested) return@LaunchedEffect
 
-                        val hasTransform = scaleAnim.value != 1f ||
-                            offsetXAnim.value != 0f ||
-                            offsetYAnim.value != 0f
+                        val hasTransform = lastStableScale != 1f ||
+                            lastStableOffsetX != 0f ||
+                            lastStableOffsetY != 0f
 
                         if (thumbnailBounds != null) {
                             menusVisible = false
+                            val wasOpenAnimating = isOpenAnimationPlaying
+                            isOpenAnimationPlaying = false
 
                             val fullTop = (containerHeight - contentHeightAtScale1) / 2f
                             val fullCenter = Offset(
@@ -253,9 +302,11 @@ fun ImageFullscreenPreview(
                             val targetScale = thumbWidth / containerWidth
                             val targetOffset = thumbCenter - fullCenter
 
-                            scaleAnim.snapTo(scale)
-                            offsetXAnim.snapTo(offset.x)
-                            offsetYAnim.snapTo(offset.y)
+                            if (!wasOpenAnimating) {
+                                scaleAnim.snapTo(lastStableScale)
+                                offsetXAnim.snapTo(lastStableOffsetX)
+                                offsetYAnim.snapTo(lastStableOffsetY)
+                            }
                             cornerRadiusAnim.snapTo(0f)
 
                             coroutineScope {
@@ -268,6 +319,9 @@ fun ImageFullscreenPreview(
                         } else {
                             if (hasTransform) {
                                 menusVisible = false
+                                scaleAnim.snapTo(lastStableScale)
+                                offsetXAnim.snapTo(lastStableOffsetX)
+                                offsetYAnim.snapTo(lastStableOffsetY)
                                 coroutineScope {
                                     launch { scaleAnim.animateTo(1f, tween(220)) }
                                     launch { offsetXAnim.animateTo(0f, tween(220)) }
@@ -285,26 +339,64 @@ fun ImageFullscreenPreview(
                         onClosingChange(false)
                         onDismiss()
                     }
-                    LaunchedEffect(scale, offset, state.isTransformInProgress) {
-                        if (state.isTransformInProgress) {
+                    LaunchedEffect(scale, offset, isTransformInProgress) {
+                        if (isTransformInProgress) {
                             scaleAnim.snapTo(scale)
                             offsetXAnim.snapTo(offset.x)
                             offsetYAnim.snapTo(offset.y)
                         }
                     }
-                    LaunchedEffect(state.isTransformInProgress) {
-                        if (!state.isTransformInProgress) {
+                    LaunchedEffect(isTransformInProgress) {
+                        if (!isTransformInProgress) {
+                            if (dismissRequested) {
+                                return@LaunchedEffect
+                            }
+
+                            if (isDragToDismiss) {
+                                val dragDistance = abs(offset.y)
+                                val rawProgress = (dragDistance / (containerHeight * 0.75f)).coerceIn(0f, 1f)
+                                if (rawProgress > 0.2f) {
+                                    // Promote drag-to-dismiss to the regular dismiss flow
+                                    isDragToDismiss = false
+                                    dismissProgress = 0f
+                                    dismissRequested = true
+                                    return@LaunchedEffect
+                                } else {
+                                    // Cancel dismiss → snap back to center
+                                    isDragToDismiss = false
+                                    dismissProgress = 0f
+                                    scaleAnim.snapTo(scale)
+                                    offsetXAnim.snapTo(offset.x)
+                                    offsetYAnim.snapTo(offset.y)
+
+                                    coroutineScope {
+                                        launch { offsetYAnim.animateTo(0f, tween(220)) }
+                                        launch { backgroundAlpha.animateTo(1f, tween(220)) }
+                                    }
+                                    offset = offset.copy(y = 0f)
+                                    return@LaunchedEffect
+                                }
+                            }
+
                             val clampedScale = scale.coerceIn(1f, 10f)
                             val scaledW = containerWidth * clampedScale
                             val scaledH = contentHeightAtScale1 * clampedScale
                             val maxOffsetX = max(0f, (scaledW - containerWidth) / 2f)
-                            val minOffsetX = -maxOffsetX
                             val maxOffsetY = max(0f, (scaledH - containerHeight) / 2f)
-                            val minOffsetY = -maxOffsetY
-                            val clampedOffset = Offset(
-                                offset.x.coerceIn(minOffsetX, maxOffsetX),
-                                offset.y.coerceIn(minOffsetY, maxOffsetY)
-                            )
+                            val clampedOffset = when {
+                                scale < 1f -> Offset.Zero
+                                scale > clampedScale -> {
+                                    val scaleRatio = clampedScale / scale
+                                    Offset(
+                                        (offset.x * scaleRatio).coerceIn(-maxOffsetX, maxOffsetX),
+                                        (offset.y * scaleRatio).coerceIn(-maxOffsetY, maxOffsetY)
+                                    )
+                                }
+                                else -> Offset(
+                                    offset.x.coerceIn(-maxOffsetX, maxOffsetX),
+                                    offset.y.coerceIn(-maxOffsetY, maxOffsetY)
+                                )
+                            }
                             scaleAnim.snapTo(scale)
                             offsetXAnim.snapTo(offset.x)
                             offsetYAnim.snapTo(offset.y)
@@ -313,10 +405,18 @@ fun ImageFullscreenPreview(
                                 launch { offsetXAnim.animateTo(clampedOffset.x, tween(300)) }
                                 launch { offsetYAnim.animateTo(clampedOffset.y, tween(300)) }
                             }
-                            scale = scaleAnim.value
-                            offset = Offset(offsetXAnim.value, offsetYAnim.value)
+                            scale = clampedScale
+                            offset = clampedOffset
                         }
                     }
+
+                    val positionBasedProgress = if (isDragToDismiss) {
+                        val dragY = if (isTransformInProgress) offset.y else offsetYAnim.value
+                        val raw = (abs(dragY) / (containerHeight * 0.75f)).coerceIn(0f, 1f)
+                        raw * raw
+                    } else 0f
+                    val effectiveBackgroundAlpha = (if (isInitialOpenState) 0f else backgroundAlpha.value) * (1f - positionBasedProgress)
+                    SideEffect { effectiveBgAlpha = effectiveBackgroundAlpha }
 
                     val sharedElementModifier = if (sharedImageKey != null && sharedTransitionScope != null && animatedVisibilityScope != null) {
                         with(sharedTransitionScope) {
@@ -331,9 +431,134 @@ fun ImageFullscreenPreview(
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .transformable(state = state, lockRotationOnZoomPan = true)
-                            .pointerInput(Unit) {
-                                detectTapGestures(onTap = { menusVisible = !menusVisible })
+                            .then(
+                                if (isTransitioning) Modifier
+                                else Modifier.pointerInput(
+                                    containerWidth, containerHeight, contentHeightAtScale1,
+                                    bottomInsetPx, scope, backGestureEdgeWidthPx
+                                ) {
+                                    detectTransformGestures(
+                                        panZoomLock = true,
+                                        onGesture = { centroid, panChange, zoomChange, _ ->
+                                            if (dismissRequested || isTransitioning) {
+                                                return@detectTransformGestures
+                                            }
+
+                                            gestureEndJob?.cancel()
+                                        isTransformInProgress = true
+                                        gestureEndJob = scope.launch {
+                                            delay(150)
+                                            isTransformInProgress = false
+                                            gestureEndJob = null
+                                        }
+
+                                        val newScale = scale * zoomChange
+
+                                        val centerX = containerWidth / 2f
+                                        val centerY = containerHeight / 2f
+
+                                        // If this looks like a system back swipe from the left edge, ignore it
+                                        if (zoomChange == 1f && backGestureEdgeWidthPx != null) {
+                                            val absDx = abs(panChange.x)
+                                            val absDy = abs(panChange.y)
+                                            if (absDx > absDy && centroid.x < backGestureEdgeWidthPx) {
+                                                return@detectTransformGestures
+                                            }
+                                        }
+
+                                        if (zoomChange != 1f) {
+                                            isDragToDismiss = false
+                                            dismissProgress = 0f
+                                            scale = newScale
+
+                                            val pivotOffsetX = centroid.x - centerX - offset.x
+                                            val pivotOffsetY = centroid.y - centerY - offset.y
+                                            offset = Offset(
+                                                centroid.x - centerX - pivotOffsetX * zoomChange,
+                                                centroid.y - centerY - pivotOffsetY * zoomChange
+                                            )
+
+                                            val contentHeightAtNewScale = contentHeightAtScale1 * newScale
+                                            val scaledW = containerWidth * newScale
+                                            val maxOffsetX = max(0f, (scaledW - containerWidth) / 2f)
+                                            val maxOffsetYRaw = max(0f, (contentHeightAtNewScale - containerHeight) / 2f)
+                                            val limitedBottom = (containerHeight - bottomInsetPx) * 0.5f
+                                            val maxOffsetY = min(maxOffsetYRaw, limitedBottom)
+                                            val minOffsetY = -maxOffsetY
+
+                                            val edgeResistanceX = when {
+                                                offset.x >= maxOffsetX - 1f && panChange.x > 0 -> 0.3f
+                                                offset.x <= -maxOffsetX + 1f && panChange.x < 0 -> 0.3f
+                                                else -> 1f
+                                            }
+
+                                            val newX = (offset.x + panChange.x * edgeResistanceX).coerceIn(-maxOffsetX, maxOffsetX)
+                                            val newY = if (maxOffsetY > 0f) {
+                                                (offset.y + panChange.y).coerceIn(minOffsetY, maxOffsetY)
+                                            } else {
+                                                offset.y
+                                            }
+                                            offset = Offset(newX, newY)
+                                        } else {
+                                            val contentHeightAtCurrentScale = contentHeightAtScale1 * scale
+                                            val canScrollVertically = contentHeightAtCurrentScale > containerHeight
+                                            val absDx = abs(panChange.x)
+                                            val absDy = abs(panChange.y)
+
+                                            if (scale > 1f || canScrollVertically) {
+                                                isDragToDismiss = false
+                                                dismissProgress = 0f
+
+                                                val scaledW = containerWidth * scale
+                                                val maxOffsetX = max(0f, (scaledW - containerWidth) / 2f)
+                                                val maxOffsetYRaw = max(0f, (contentHeightAtCurrentScale - containerHeight) / 2f)
+                                                val limitedBottom = (containerHeight - bottomInsetPx) * 0.5f
+                                                val maxOffsetY = min(maxOffsetYRaw, limitedBottom)
+                                                val minOffsetY = -maxOffsetY
+
+                                                val edgeResistanceX = when {
+                                                    offset.x >= maxOffsetX - 1f && panChange.x > 0 -> 0.3f
+                                                    offset.x <= -maxOffsetX + 1f && panChange.x < 0 -> 0.3f
+                                                    else -> 1f
+                                                }
+
+                                                val newX = (offset.x + panChange.x * edgeResistanceX).coerceIn(-maxOffsetX, maxOffsetX)
+                                                val newY = if (maxOffsetY > 0f) {
+                                                    (offset.y + panChange.y).coerceIn(minOffsetY, maxOffsetY)
+                                                } else {
+                                                    offset.y
+                                                }
+                                                offset = Offset(newX, newY)
+                                            } else {
+                                                if (scale >= 1f && (isDragToDismiss || absDy > absDx)) {
+                                                    if (!isDragToDismiss && absDy > 0f) {
+                                                        isDragToDismiss = true
+                                                        menusVisible = false
+                                                    }
+                                                    offset = offset.copy(y = offset.y + panChange.y)
+                                                    val dragDistance = abs(offset.y)
+                                                    val rawProgress = (dragDistance / (containerHeight * 0.75f)).coerceIn(0f, 1f)
+                                                    dismissProgress = rawProgress * rawProgress
+                                                } else {
+                                                    val scaledW = containerWidth * scale
+                                                    val maxOffsetX = max(0f, (scaledW - containerWidth) / 2f)
+                                                    val edgeResistanceX = when {
+                                                        offset.x >= maxOffsetX - 1f && panChange.x > 0 -> 0.3f
+                                                        offset.x <= -maxOffsetX + 1f && panChange.x < 0 -> 0.3f
+                                                        else -> 1f
+                                                    }
+                                                    offset = offset.copy(x = (offset.x + panChange.x * edgeResistanceX).coerceIn(-maxOffsetX, maxOffsetX))
+                                                }
+                                            }
+                                        }
+                                    }
+                                )
+                                }
+                            )
+                            .pointerInput(isTransitioning) {
+                                if (!isTransitioning) {
+                                    detectTapGestures(onTap = { menusVisible = !menusVisible })
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -351,6 +576,8 @@ fun ImageFullscreenPreview(
                                     .graphicsLayer {
                                         scaleX = scaleAnim.value
                                         scaleY = scaleAnim.value
+                                        translationX = offsetXAnim.value - offsetXAnim.value.roundToInt()
+                                        translationY = offsetYAnim.value - offsetYAnim.value.roundToInt()
                                         val scale = maxOf(scaleAnim.value, 0.01f)
                                         shape = androidx.compose.foundation.shape.RoundedCornerShape((cornerRadiusAnim.value / scale).dp)
                                         clip = true
@@ -368,9 +595,7 @@ fun ImageFullscreenPreview(
             visible = effectiveMenusVisible,
             enter = androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.fadeOut(),
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .fillMaxWidth()
+            modifier = Modifier.align(Alignment.TopStart).fillMaxWidth()
         ) {
             Row(
                 modifier = Modifier
@@ -468,9 +693,7 @@ fun ImageFullscreenPreview(
             visible = effectiveMenusVisible && message.content.isNotBlank(),
             enter = androidx.compose.animation.fadeIn(),
             exit = androidx.compose.animation.fadeOut(),
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
+            modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth()
         ) {
             if (message.content.isNotBlank()) {
                 Box(

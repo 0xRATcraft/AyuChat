@@ -32,6 +32,8 @@ import ru.fromchat.ui.dm.DmContainerScreen
 import ru.fromchat.ui.main.MainScreen
 import ru.fromchat.ui.profile.ProfileScreen
 import ru.fromchat.ui.setup.ServerConfigScreen
+import ru.fromchat.ui.LocalSystemBarsVisibility
+import ru.fromchat.ui.rememberSystemBarsController
 
 val LocalNavController = compositionLocalOf<NavController> { error("NavController not provided") }
 
@@ -104,7 +106,8 @@ fun App(scrollToMessageId: Int? = null, startAtPublicChat: Boolean = false) {
         }
 
         CompositionLocalProvider(
-            LocalNavController provides navController
+            LocalNavController provides navController,
+            LocalSystemBarsVisibility provides rememberSystemBarsController()
         ) {
             if (startDestination != null) {
                 val animationSpec = tween<IntOffset>(400)
