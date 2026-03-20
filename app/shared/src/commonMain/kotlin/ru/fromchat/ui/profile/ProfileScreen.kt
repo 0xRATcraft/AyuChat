@@ -18,9 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.AlternateEmail
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -136,7 +136,7 @@ fun ProfileScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.ArrowBack,
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = "Back",
                             modifier = Modifier.size(24.dp)
                         )
@@ -178,8 +178,8 @@ fun ProfileScreen(
                                 modifier = Modifier
                                     .padding(top = 16.dp)
                                     .sharedElement(
-                                        rememberSharedContentState(key = sharedAvatarKey!!),
-                                        animatedVisibilityScope = animatedVisibilityScope!!
+                                        rememberSharedContentState(key = sharedAvatarKey),
+                                        animatedVisibilityScope = animatedVisibilityScope
                                     )
                                     .size(128.dp)
                             )

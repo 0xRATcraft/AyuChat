@@ -1,7 +1,7 @@
 package ru.fromchat.utils
 
-import kotlinx.datetime.Instant
 import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * Returns a user-friendly string for online status / last seen from an ISO-8601 timestamp.

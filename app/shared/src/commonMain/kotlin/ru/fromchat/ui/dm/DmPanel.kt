@@ -4,26 +4,24 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.DmEnvelope
-import ru.fromchat.api.ProfileCache
 import ru.fromchat.api.Message
+import ru.fromchat.api.ProfileCache
 import ru.fromchat.api.WebSocketMessage
 import ru.fromchat.core.Logger
 import ru.fromchat.crypto.decryptEnvelope
+import ru.fromchat.ui.chat.AvatarInfo
 import ru.fromchat.ui.chat.ChatPanel
 import ru.fromchat.ui.chat.DecryptedImageCache
 import ru.fromchat.ui.chat.DmTypingHandler
 import ru.fromchat.ui.chat.TypingHandler
-import ru.fromchat.ui.chat.TypingUser
-import ru.fromchat.ui.chat.AvatarInfo
 
 class DmPanel(
     private val otherUserId: Int,
@@ -79,8 +77,8 @@ class DmPanel(
         }.onSuccess { response ->
             clearMessages()
             val decryptedForLog = mutableListOf<Pair<Int, String>>()
-            val messages = response.messages.mapNotNull { envelope ->
-                decryptEnvelope(envelope, currentUserId)?.let { plaintext ->
+            val messages = response.messages.map { envelope ->
+                decryptEnvelope(envelope, currentUserId).let { plaintext ->
                     decryptedForLog.add(envelope.id to plaintext)
                     createMessage(envelope, plaintext)
                 }

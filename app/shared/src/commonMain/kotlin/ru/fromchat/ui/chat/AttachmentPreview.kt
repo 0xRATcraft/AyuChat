@@ -56,10 +56,10 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import coil3.compose.rememberAsyncImagePainter
 import com.pr0gramm3r101.utils.conditional
+import com.pr0gramm3r101.utils.crypto.Base64
 import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.materials.ExperimentalHazeMaterialsApi
 import dev.chrisbanes.haze.materials.HazeMaterials
-import com.pr0gramm3r101.utils.crypto.Base64
 import ru.fromchat.api.DmEnvelope
 import ru.fromchat.api.DmFile
 
@@ -187,7 +187,7 @@ fun AttachmentPreview(
                             onFullyLoaded = { isFullyLoaded = it }
                         )
                         isPendingImage -> PendingImageContent(
-                            uri = pendingFileUri!!,
+                            uri = pendingFileUri,
                             isUploading = isUploading,
                             uploadProgress = uploadProgress,
                             isImage = true
@@ -277,6 +277,7 @@ private fun UnifiedImageContent(
     }
 }
 
+@OptIn(ExperimentalHazeMaterialsApi::class)
 @Composable
 private fun PendingImageContent(
     uri: String,
@@ -391,6 +392,7 @@ private fun DeterminateCircularProgress(
     )
 }
 
+@OptIn(ExperimentalHazeMaterialsApi::class)
 @Composable
 private fun DecryptedImageContent(
     messageId: Int,

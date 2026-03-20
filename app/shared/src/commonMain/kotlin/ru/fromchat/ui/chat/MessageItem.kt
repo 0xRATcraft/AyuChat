@@ -1,8 +1,8 @@
 package ru.fromchat.ui.chat
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -18,12 +18,12 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,15 +36,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInRoot
@@ -300,7 +299,7 @@ fun MessageItem(
                                         pendingFilename = message.pendingFilename,
                                         isUploading = false,
                                         uploadProgress = null,
-                                        fileThumbnail = message.fileThumbnails!!.first().takeIf { it.isNotBlank() },
+                                        fileThumbnail = message.fileThumbnails.first().takeIf { it.isNotBlank() },
                                         fileAspectRatio = message.fileAspectRatios?.firstOrNull()?.takeIf { it > 0f }
                                             ?: message.pendingFileAspectRatio,
                                         fileSizeBytes = message.fileSizes?.firstOrNull(),

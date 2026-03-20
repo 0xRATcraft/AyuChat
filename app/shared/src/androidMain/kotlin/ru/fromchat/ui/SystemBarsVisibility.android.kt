@@ -13,7 +13,8 @@ actual fun rememberSystemBarsController(): ((Boolean) -> Unit)? {
     return remember(view) {
         val activity = view.context as? Activity ?: return@remember null
         val window = activity.window ?: return@remember null
-        val controller = WindowCompat.getInsetsController(window, view) ?: return@remember null
+        val controller = WindowCompat.getInsetsController(window, view);
+
         { visible: Boolean ->
             if (visible) {
                 controller.show(WindowInsetsCompat.Type.statusBars())
