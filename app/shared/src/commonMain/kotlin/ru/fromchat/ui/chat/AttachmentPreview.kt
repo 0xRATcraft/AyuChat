@@ -3,9 +3,7 @@ package ru.fromchat.ui.chat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -31,10 +29,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ProgressIndicatorDefaults
+import androidx.compose.material3.WavyProgressIndicatorDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -350,43 +350,44 @@ private fun ExpressiveUploadIndicator(
     modifier: Modifier = Modifier
 ) {
     val clampedProgress = uploadProgress?.coerceIn(0, 100)
-    val animatedProgress by animateFloatAsState(
-        targetValue = (clampedProgress ?: 0) / 100f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessVeryLow,
-            visibilityThreshold = 1 / 1000f
-        ),
-        label = "uploadProgress"
+    val indeterminate = clampedProgress == null || clampedProgress == 0
+    val waveActive = clampedProgress != null && clampedProgress in 1..99
+
+    val waveAnimSpec = tween<Float>(durationMillis = 320, easing = FastOutSlowInEasing)
+
+    val targetWaveStrength = if (waveActive) 1f else 0f
+    val animatedWaveStrength by animateFloatAsState(
+        targetValue = targetWaveStrength,
+        animationSpec = waveAnimSpec,
+        label = "waveStrength"
     )
 
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.82f))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (clampedProgress != null) {
-                LoadingIndicator(
-                    progress = { animatedProgress },
-                    modifier = modifier,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    text = "$clampedProgress%",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            } else {
-                LoadingIndicator(
-                    modifier = modifier,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
+    val animatedProgress by animateFloatAsState(
+        targetValue = (clampedProgress ?: 0) / 100f,
+        animationSpec = ProgressIndicatorDefaults.ProgressAnimationSpec,
+        label = "uploadProgress"
+    )
+    val primary = MaterialTheme.colorScheme.primary
+    val trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f)
+    val defaultIndicatorAmplitude = WavyProgressIndicatorDefaults.indicatorAmplitude
+    val ringModifier = Modifier.size(56.dp)
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        if (indeterminate) {
+            CircularWavyProgressIndicator(
+                modifier = ringModifier,
+                color = primary,
+                trackColor = trackColor,
+                amplitude = animatedWaveStrength
+            )
+        } else {
+            CircularWavyProgressIndicator(
+                progress = { animatedProgress },
+                modifier = ringModifier,
+                color = primary,
+                trackColor = trackColor,
+                amplitude = { p -> animatedWaveStrength * defaultIndicatorAmplitude(p) }
+            )
         }
     }
 }
