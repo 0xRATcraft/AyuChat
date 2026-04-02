@@ -1,11 +1,24 @@
 package ru.fromchat.api
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class WebSocketUpdatesData(
     val seq: Int,
     val updates: List<WebSocketMessage>
+)
+
+@Serializable
+data class GetUpdatesRequest(
+    @SerialName("lastSeq") val lastSeq: Int
+)
+
+@Serializable
+data class GetUpdatesResponse(
+    val status: String,
+    @SerialName("lastSeq") val lastSeq: Int,
+    @SerialName("missedCount") val missedCount: Int
 )
 
 @Serializable

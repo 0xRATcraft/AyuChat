@@ -21,6 +21,7 @@ import ru.fromchat.core.Logger
 import ru.fromchat.crypto.CorruptedDmMessagePlaceholder
 import ru.fromchat.crypto.DmCiphertextCorruptedException
 import ru.fromchat.crypto.decryptEnvelope
+import ru.fromchat.api.db.MessageCacheStore
 import ru.fromchat.ui.chat.AvatarInfo
 import ru.fromchat.ui.chat.ChatPanel
 import ru.fromchat.ui.chat.DecryptedImageCache
@@ -97,32 +98,48 @@ class DmPanel(
 
     override suspend fun loadMessages() {
         setLoading(true)
-        runCatching {
-            ApiClient.getDmHistory(otherUserId)
-        }.onSuccess { response ->
-            clearMessages()
-            val decryptedForLog = mutableListOf<Pair<Int, String>>()
-            val messages = response.messages.map { envelope ->
-                val outcome = decryptDmEnvelopeForUi(envelope)
-                decryptedForLog.add(envelope.id to outcome.plaintext)
-                createMessage(envelope, outcome.plaintext, outcome.isCorrupted)
+        try {
+            // First, hydrate from cache if available.
+            runCatching {
+                val cached = MessageCacheStore.loadDmMessages(otherUserId)
+                if (cached.isNotEmpty()) {
+                    clearMessages()
+                    addMessages(cached)
+                }
             }
-            decryptedForLog.takeLast(5).forEachIndexed { i, (id, json) ->
-                Logger.d("DmPanel", "Decrypted message #${i + 1} (id=$id): $json")
+
+            // Then refresh from network.
+            runCatching {
+                ApiClient.getDmHistory(otherUserId)
+            }.onSuccess { response ->
+                clearMessages()
+                val decryptedForLog = mutableListOf<Pair<Int, String>>()
+                val messages = response.messages.map { envelope ->
+                    val outcome = decryptDmEnvelopeForUi(envelope)
+                    decryptedForLog.add(envelope.id to outcome.plaintext)
+                    createMessage(envelope, outcome.plaintext, outcome.isCorrupted)
+                }
+                decryptedForLog.takeLast(5).forEachIndexed { i, (id, json) ->
+                    Logger.d("DmPanel", "Decrypted message #${i + 1} (id=$id): $json")
+                }
+                val replyToMap = messages.associateBy { it.id }
+                val messagesWithReplies = messages.map { msg ->
+                    val envelope = response.messages.find { it.id == msg.id }
+                    if (envelope?.replyToId != null) {
+                        msg.copy(reply_to = replyToMap[envelope.replyToId])
+                    } else msg
+                }
+                addMessages(messagesWithReplies)
+                setHasMoreMessages(false)
+
+                // Persist the most recent DM messages for offline use.
+                MessageCacheStore.replaceDmMessages(otherUserId, messagesWithReplies)
+            }.onFailure { error ->
+                Logger.e("DmPanel", "Failed to load DM history: ${error.message}", error)
             }
-            val replyToMap = messages.associateBy { it.id }
-            val messagesWithReplies = messages.map { msg ->
-                val envelope = response.messages.find { it.id == msg.id }
-                if (envelope?.replyToId != null) {
-                    msg.copy(reply_to = replyToMap[envelope.replyToId])
-                } else msg
-            }
-            addMessages(messagesWithReplies)
-            setHasMoreMessages(false)
-        }.onFailure { error ->
-            Logger.e("DmPanel", "Failed to load DM history: ${error.message}", error)
+        } finally {
+            setLoading(false)
         }
-        setLoading(false)
     }
 
     override suspend fun loadMoreMessages() {
@@ -191,6 +208,9 @@ class DmPanel(
                     val replyTo = _state.messages.find { it.id == envelope.replyToId }
                     updateMessage(envelope.id) { it.copy(reply_to = replyTo) }
                 }
+
+                // Persist updated DM thread to cache
+                MessageCacheStore.replaceDmMessages(otherUserId, _state.messages)
             }
         }
     }
@@ -274,6 +294,9 @@ class DmPanel(
                     isContentCorrupted = outcome.isCorrupted
                 )
             }
+
+            // Persist edit to cache
+            MessageCacheStore.replaceDmMessages(otherUserId, _state.messages)
         }
     }
 

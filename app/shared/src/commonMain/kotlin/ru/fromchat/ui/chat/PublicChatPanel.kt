@@ -9,6 +9,7 @@ import ru.fromchat.api.ReactionUpdateData
 import ru.fromchat.api.TypingUpdateData
 import ru.fromchat.api.WebSocketMessage
 import ru.fromchat.api.WebSocketUpdatesData
+import ru.fromchat.api.db.MessageCacheStore
 import ru.fromchat.core.Logger
 
 class PublicChatPanel(
@@ -49,17 +50,31 @@ class PublicChatPanel(
 
         setLoading(true)
         try {
+            // First, try to show cached messages immediately for offline / fast startup.
+            runCatching {
+                val cached = MessageCacheStore.loadPublicMessages()
+                if (cached.isNotEmpty()) {
+                    clearMessages()
+                    cached.forEach { message ->
+                        addMessage(message)
+                    }
+                }
+            }
+
+            // Then refresh from network when available.
             val response = ApiClient.getMessages(limit = 50)
             if (response.messages.isNotEmpty()) {
                 clearMessages()
                 response.messages.forEach { message ->
                     addMessage(message)
                 }
+                // Persist fresh messages to cache for offline use.
+                MessageCacheStore.replacePublicMessages(response.messages)
             }
             setHasMoreMessages(false) // TODO: Implement has_more from API
             messagesLoaded = true
         } catch (_: Exception) {
-            // Handle error
+            // Keep whatever cached state we have; no-op on error.
         } finally {
             setLoading(false)
         }
@@ -110,17 +125,24 @@ class PublicChatPanel(
                 val editedMsg = json.decodeFromJsonElement(Message.serializer(), data)
                 DecryptedImageCache.invalidateForMessage(editedMsg.id)
                 updateMessage(editedMsg.id) { editedMsg }
+                // Update cache to reflect edit
+                MessageCacheStore.replacePublicMessages(_state.messages)
             }
             "messageDeleted" -> {
                 val data = updateMessage.data ?: return
                 val deletedData = json.decodeFromJsonElement(MessageDeletedData.serializer(), data)
                 DecryptedImageCache.invalidateForMessage(deletedData.message_id)
                 removeMessage(deletedData.message_id)
+                // Mark deleted in cache
+                MessageCacheStore.markMessageDeleted("public", deletedData.message_id)
+                MessageCacheStore.replacePublicMessages(_state.messages)
             }
             "reactionUpdate" -> {
                 val data = updateMessage.data ?: return
                 val reactionUpdate = json.decodeFromJsonElement(ReactionUpdateData.serializer(), data)
                 handleReactionUpdate(reactionUpdate)
+                // Re-write cache so reactions are updated
+                MessageCacheStore.replacePublicMessages(_state.messages)
             }
             "typing" -> {
                 val data = updateMessage.data ?: return

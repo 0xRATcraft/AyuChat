@@ -1,5 +1,11 @@
 package ru.fromchat.ui.main
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -9,13 +15,23 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.style.TextOverflow
 import org.jetbrains.compose.resources.stringResource
 import ru.fromchat.Res
+import ru.fromchat.api.ApiClient
+import ru.fromchat.api.ConnectionStateStore
+import ru.fromchat.api.ConnectionStatus
+import ru.fromchat.api.db.CachedConversation
+import ru.fromchat.api.db.MessageCacheStore
 import ru.fromchat.chat_last_mesaage
-import ru.fromchat.chats
 import ru.fromchat.public_chat
 import ru.fromchat.ui.LocalNavController
 
@@ -24,17 +40,51 @@ import ru.fromchat.ui.LocalNavController
 fun ChatsTab() {
     val navController = LocalNavController.current
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val connectionStatus by ConnectionStateStore.status.collectAsState()
+    var dmConversations by remember { mutableStateOf<List<CachedConversation>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        // Load cached DM conversations first for instant offline display.
+        runCatching {
+            dmConversations = MessageCacheStore.loadCachedDmConversations()
+        }
+
+        // Then refresh from network and update cache + state.
+        runCatching {
+            ApiClient.getDmConversations()
+        }.onSuccess { conversations ->
+            runCatching {
+                MessageCacheStore.replaceDmConversations(conversations)
+                dmConversations = MessageCacheStore.loadCachedDmConversations()
+            }
+        }
+    }
+
+    val titleText = when (connectionStatus) {
+        ConnectionStatus.UPDATING -> "Updating..."
+        ConnectionStatus.CONNECTING -> "Connecting..."
+        ConnectionStatus.CONNECTED -> "FromChat"
+    }
 
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             MediumTopAppBar(
                 title = {
-                    Text(
-                        text = stringResource(Res.string.chats),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    AnimatedContent(
+                        targetState = titleText,
+                        transitionSpec = {
+                            (slideInVertically { it / 2 } + fadeIn()) togetherWith
+                                (slideOutVertically { -it / 2 } + fadeOut())
+                        },
+                        label = "chats_title"
+                    ) { text ->
+                        Text(
+                            text = text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 },
                 scrollBehavior = scrollBehavior
             )
@@ -47,6 +97,27 @@ fun ChatsTab() {
                     supportingContent = { Text(stringResource(Res.string.chat_last_mesaage)) },
                     modifier = Modifier.clickable {
                         navController.navigate("chats/publicChat")
+                    }
+                )
+            }
+
+            items(dmConversations.size) { index ->
+                val conv = dmConversations[index]
+                ListItem(
+                    headlineContent = { Text(conv.displayName.ifBlank { "User ${conv.otherUserId}" }) },
+                    supportingContent = {
+                        val preview = conv.lastMessagePreview ?: "Direct messages"
+                        Text(preview)
+                    },
+                    trailingContent = {
+                        if (conv.unreadCount > 0) {
+                            Text("+${conv.unreadCount}")
+                        }
+                    },
+                    modifier = Modifier.clickable {
+                        if (conv.otherUserId != 0) {
+                            navController.navigate("dm/${conv.otherUserId}")
+                        }
                     }
                 )
             }

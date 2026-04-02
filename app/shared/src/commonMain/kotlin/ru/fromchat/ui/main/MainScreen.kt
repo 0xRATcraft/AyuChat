@@ -10,7 +10,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Contacts
-import androidx.compose.material.icons.filled.Mail
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -25,12 +25,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import org.jetbrains.compose.resources.stringResource
 import ru.fromchat.Res
+import ru.fromchat.api.ApiClient
 import ru.fromchat.chats
 import ru.fromchat.coming_soon
 import ru.fromchat.contacts
-import ru.fromchat.dms
 import ru.fromchat.settings
 import ru.fromchat.utils.exclude
+import ru.fromchat.ui.profile.ProfileScreen
 
 @Suppress("AssignedValueIsNeverRead")
 @Composable
@@ -53,16 +54,16 @@ fun MainScreen(onLogout: () -> Unit = {}) {
                     icon = { Icon(Icons.Filled.Contacts, contentDescription = null) }
                 )
                 NavigationBarItem(
-                    selected = selectedTab == "dms",
-                    onClick = { selectedTab = "dms" },
-                    label = { Text(stringResource(Res.string.dms)) },
-                    icon = { Icon(Icons.Filled.Mail, contentDescription = null) }
-                )
-                NavigationBarItem(
                     selected = selectedTab == "settings",
                     onClick = { selectedTab = "settings" },
                     label = { Text(stringResource(Res.string.settings)) },
                     icon = { Icon(Icons.Filled.Settings, contentDescription = null) }
+                )
+                NavigationBarItem(
+                    selected = selectedTab == "profile",
+                    onClick = { selectedTab = "profile" },
+                    label = { Text("Profile") },
+                    icon = { Icon(Icons.Filled.Person, contentDescription = null) }
                 )
             }
         },
@@ -79,11 +80,18 @@ fun MainScreen(onLogout: () -> Unit = {}) {
                 "contacts" -> {
                     Text(stringResource(Res.string.coming_soon))
                 }
-                "dms" -> {
-                    Text(stringResource(Res.string.coming_soon))
-                }
                 "settings" -> {
                     SettingsTab(onLogout = onLogout)
+                }
+                "profile" -> {
+                    val currentUserId = ApiClient.user?.id
+                    ProfileScreen(
+                        userId = currentUserId,
+                        onBack = {},
+                        onChat = { _ -> },
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenSettings = { selectedTab = "settings" }
+                    )
                 }
             }
         }

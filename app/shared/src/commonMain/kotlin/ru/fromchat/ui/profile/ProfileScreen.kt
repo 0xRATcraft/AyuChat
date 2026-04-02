@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.AlternateEmail
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -86,7 +87,8 @@ fun ProfileScreen(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     sharedAvatarKey: Any? = null,
-    initialDisplayName: String? = null
+    initialDisplayName: String? = null,
+    onOpenSettings: () -> Unit = {}
 ) {
     val clipboardManager: ClipboardManager = LocalClipboardManager.current
     val targetUserId = userId.takeIf { it != null && it > 0 }
@@ -239,6 +241,7 @@ fun ProfileScreen(
                         val scope = rememberCoroutineScope()
 
                         val verificationLabel = if (profile.verified == true) "Verified account" else "Click to verify"
+                        val isOwnProfile = ApiClient.user?.id == profile.id
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -267,13 +270,23 @@ fun ProfileScreen(
                                 .padding(start = 16.dp, end = 16.dp, bottom = 20.dp),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            val chatSource = remember { MutableInteractionSource() }
+                            val primarySource = remember { MutableInteractionSource() }
+                            val primaryClick: () -> Unit
+                            val primaryIcon = if (isOwnProfile) Icons.Filled.Settings else Icons.AutoMirrored.Filled.Chat
+                            val primaryLabel = if (isOwnProfile) "Settings" else "Chat"
+
+                            primaryClick = if (isOwnProfile) {
+                                onOpenSettings
+                            } else {
+                                { onChat(profile.id) }
+                            }
+
                             Card(
                                 modifier = Modifier
                                     .weight(1f)
                                     .scaleOnPress(
                                         scale = 0.90f,
-                                        interactionSource = chatSource,
+                                        interactionSource = primarySource,
                                         clipShape = MaterialTheme.shapes.extraLarge
                                     ),
                                 shape = MaterialTheme.shapes.extraLarge,
@@ -283,9 +296,9 @@ fun ProfileScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clickable(
-                                            interactionSource = chatSource,
+                                            interactionSource = primarySource,
                                             indication = LocalIndication.current,
-                                            onClick = { onChat(profile.id) }
+                                            onClick = primaryClick
                                         ),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -294,13 +307,13 @@ fun ProfileScreen(
                                         modifier = Modifier.padding(vertical = 16.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.AutoMirrored.Filled.Chat,
+                                            imageVector = primaryIcon,
                                             contentDescription = null,
                                             modifier = Modifier.size(28.dp)
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                         Text(
-                                            text = "Chat",
+                                            text = primaryLabel,
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                     }

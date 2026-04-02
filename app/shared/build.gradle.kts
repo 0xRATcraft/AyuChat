@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.multiplatform.library)
     alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.sqldelight)
 }
 
 kotlin {
@@ -34,13 +35,6 @@ kotlin {
             languageSettings {
                 optIn("kotlin.RequiresOptIn")
             }
-        }
-
-        androidMain.dependencies {
-            implementation(libs.ktor.client.okhttp)
-            implementation(libs.androidx.activity.compose)
-            implementation(libs.androidx.work.runtime.ktx)
-            implementation(libs.tweetnacl.java)
         }
 
         commonMain.dependencies {
@@ -76,10 +70,22 @@ kotlin {
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor3)
 
+            // SQLDelight runtime
+            implementation(libs.sqldelight.runtime)
+            implementation(libs.sqldelight.coroutines.extensions)
+
             implementation(project(":utils:shared"))
             implementation(libs.krypto)
             implementation(libs.cryptography.core)
             implementation(libs.cryptography.provider.optimal)
+        }
+
+        androidMain.dependencies {
+            implementation(libs.ktor.client.okhttp)
+            implementation(libs.androidx.activity.compose)
+            implementation(libs.androidx.work.runtime.ktx)
+            implementation(libs.tweetnacl.java)
+            implementation(libs.sqldelight.driver.android)
         }
 
         iosMain.dependencies {
@@ -87,6 +93,15 @@ kotlin {
             implementation(libs.jetbrains.kotlinx.coroutines.core)
             implementation(libs.ktor.client.darwin)
             implementation("com.ionspin.kotlin:multiplatform-crypto-libsodium-bindings:0.9.5")
+            implementation(libs.sqldelight.driver.native)
+        }
+    }
+}
+
+sqldelight {
+    databases {
+        create("MessageDatabase") {
+            packageName.set("ru.fromchat.db")
         }
     }
 }

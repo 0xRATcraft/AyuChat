@@ -22,6 +22,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import ru.fromchat.api.ApiClient
+import ru.fromchat.api.UpdateSyncManager
 import ru.fromchat.api.WebSocketManager
 import ru.fromchat.core.config.Config
 import ru.fromchat.ui.auth.LoginScreen
@@ -49,6 +50,11 @@ fun App(scrollToMessageId: Int? = null, startAtPublicChat: Boolean = false) {
         // Load persisted token and user data
         ApiClient.loadPersistedData()
 
+        // Initialize update sync state for the current user (if any)
+        runCatching {
+            UpdateSyncManager.initializeFromStorage(ApiClient.user?.id)
+        }
+
         // Now determine start destination based on loaded token
         val hasToken = ApiClient.token?.isNotEmpty() == true
         startDestination = when {
@@ -64,12 +70,11 @@ fun App(scrollToMessageId: Int? = null, startAtPublicChat: Boolean = false) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_RESUME -> {
-                    // Connect WebSocket when app comes to foreground
+                    // Ensure WebSocket connection loop is running when app comes to foreground
                     WebSocketManager.connect()
                 }
                 Lifecycle.Event.ON_PAUSE -> {
-                    // Disconnect WebSocket when app goes to background
-                    WebSocketManager.disconnect()
+                    // No-op for connection lifecycle: WebSocketManager keeps trying to reconnect
                 }
                 else -> {}
             }

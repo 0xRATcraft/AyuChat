@@ -5,6 +5,8 @@ import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -74,6 +76,8 @@ import ru.fromchat.Res
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.AttachmentUploadJob
 import ru.fromchat.api.AttachmentUploadQueue
+import ru.fromchat.api.ConnectionStateStore
+import ru.fromchat.api.ConnectionStatus
 import ru.fromchat.api.Message
 import ru.fromchat.api.UserStatusStore
 import ru.fromchat.api.WebSocketManager
@@ -137,6 +141,7 @@ fun ChatScreen(
 
     val currentTypingUsers = panelState.typingUsers // Directly use from panelState
     val statusMap by UserStatusStore.status.collectAsState()
+    val connectionStatus by ConnectionStateStore.status.collectAsState()
     LaunchedEffect(currentTypingUsers) {
         Logger.d("ChatScreen", "currentTypingUsers updated (from panelState): ${currentTypingUsers.map { it.username }}")
     }
@@ -388,30 +393,66 @@ fun ChatScreen(
                                     style = MaterialTheme.typography.titleLarge
                                 )
 
-                                AnimatedContent(
-                                    targetState = currentTypingUsers.isNotEmpty(),
-                                    transitionSpec = {
-                                        fadeIn() togetherWith fadeOut()
-                                    },
-                                    label = "typing_status"
-                                ) { hasTyping ->
-                                    if (hasTyping) {
-                                        TypingIndicator(
-                                            typingUsers = currentTypingUsers.map { it.username },
-                                            modifier = Modifier.padding(top = 2.dp)
-                                        )
-                                    } else if (panelState.profileUserId != null) {
+                                val subtitleKey = when {
+                                    connectionStatus == ConnectionStatus.UPDATING -> "updating"
+                                    connectionStatus != ConnectionStatus.CONNECTED -> "connecting"
+                                    currentTypingUsers.isNotEmpty() -> "typing"
+                                    panelState.profileUserId != null -> {
                                         val userStatus = statusMap[panelState.profileUserId]
-                                        if (userStatus != null) {
-                                            val statusText = formatLastSeen(userStatus.online, userStatus.lastSeen)
-                                            if (statusText.isNotEmpty()) {
-                                                Text(
-                                                    text = statusText,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                    modifier = Modifier.padding(top = 2.dp)
-                                                )
-                                            }
+                                        val statusText = userStatus?.let {
+                                            formatLastSeen(it.online, it.lastSeen)
+                                        }.orEmpty()
+                                        if (statusText.isNotEmpty()) {
+                                            "presence:$statusText"
+                                        } else {
+                                            ""
+                                        }
+                                    }
+                                    else -> ""
+                                }
+
+                                AnimatedContent(
+                                    targetState = subtitleKey,
+                                    transitionSpec = {
+                                        (slideInVertically { it / 2 } + fadeIn()) togetherWith
+                                            (slideOutVertically { -it / 2 } + fadeOut())
+                                    },
+                                    label = "chat_subtitle"
+                                ) { key ->
+                                    when {
+                                        key == "updating" -> {
+                                            Text(
+                                                text = "Updating...",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                        key == "connecting" -> {
+                                            Text(
+                                                text = "Connecting...",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                        key == "typing" -> {
+                                            TypingIndicator(
+                                                typingUsers = currentTypingUsers.map { it.username },
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                        key.startsWith("presence:") -> {
+                                            val text = key.removePrefix("presence:")
+                                            Text(
+                                                text = text,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                        else -> {
+                                            // No subtitle for this state
                                         }
                                     }
                                 }
