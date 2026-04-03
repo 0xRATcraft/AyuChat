@@ -30,6 +30,46 @@ object MessageCacheStore {
     private fun conversationIdForPublic(): String = "public"
     private fun conversationIdForDm(otherUserId: Int): String = "dm:$otherUserId"
 
+    private fun otherUserIdFromDmConversationId(conversationId: String): Int? =
+        if (conversationId.startsWith("dm:")) {
+            conversationId.removePrefix("dm:").toIntOrNull()
+        } else {
+            null
+        }
+
+    private fun truncateDmListPreview(text: String, maxLen: Int = 120): String {
+        val t = text.trim()
+        if (t.isEmpty()) return ""
+        return if (t.length > maxLen) t.take(maxLen) + "\u2026" else t
+    }
+
+    /** Sets [Conversation.lastMessagePreview] from the latest cached plaintext row (DMs are encrypted on the API). */
+    private suspend fun syncDmConversationPreviewFromCache(otherUserId: Int) {
+        val convId = conversationIdForDm(otherUserId)
+        withContext(Dispatchers.Default) {
+            val row = db.messageDatabaseQueries.selectConversations().executeAsList()
+                .find { it.id == convId } ?: return@withContext
+            val recent = db.messageDatabaseQueries
+                .selectRecentMessagesByConversation(convId, 1)
+                .executeAsList()
+                .firstOrNull()
+            val rawPreview = recent?.content?.orEmpty()?.trim().orEmpty()
+            val preview = rawPreview.takeIf { it.isNotEmpty() }
+                ?.let { truncateDmListPreview(it) }
+                ?.takeIf { it.isNotEmpty() }
+            db.messageDatabaseQueries.upsertConversation(
+                id = row.id,
+                type = row.type,
+                otherUserId = row.otherUserId,
+                displayName = row.displayName,
+                lastMessageId = row.lastMessageId,
+                lastMessagePreview = preview,
+                unreadCount = row.unreadCount,
+                updatedAt = row.updatedAt
+            )
+        }
+    }
+
     /**
      * Full history for a conversation (unbounded). Prefer [loadRecentPublicMessages] when opening UI.
      */
@@ -92,6 +132,7 @@ object MessageCacheStore {
 
     suspend fun upsertDmMessage(otherUserId: Int, message: Message) {
         upsertSingle(conversationIdForDm(otherUserId), message)
+        syncDmConversationPreviewFromCache(otherUserId)
     }
 
     suspend fun deletePublicMessageByClientMessageId(clientMessageId: String) {
@@ -151,6 +192,7 @@ object MessageCacheStore {
                 )
             }
         }
+        otherUserIdFromDmConversationId(conversationId)?.let { syncDmConversationPreviewFromCache(it) }
     }
 
     private suspend fun loadMessages(conversationId: String): List<Message> =
@@ -229,6 +271,7 @@ object MessageCacheStore {
                 }
             }
         }
+        otherUserIdFromDmConversationId(conversationId)?.let { syncDmConversationPreviewFromCache(it) }
     }
 
     suspend fun markMessageDeleted(conversationId: String, messageId: Int) {
@@ -245,13 +288,23 @@ object MessageCacheStore {
             db.messageDatabaseQueries.transaction {
                 conversations.forEach { conv ->
                     val conversationId = conversationIdForDm(conv.user.id)
+                    val displayLabel = conv.user.displayName?.trim()?.takeIf { it.isNotEmpty() }
+                        ?: conv.user.username.trim()
+                    val recent = db.messageDatabaseQueries
+                        .selectRecentMessagesByConversation(conversationId, 1)
+                        .executeAsList()
+                        .firstOrNull()
+                    val rawPreview = recent?.content?.orEmpty()?.trim().orEmpty()
+                    val preview = rawPreview.takeIf { it.isNotEmpty() }
+                        ?.let { truncateDmListPreview(it) }
+                        ?.takeIf { it.isNotEmpty() }
                     db.messageDatabaseQueries.upsertConversation(
                         id = conversationId,
                         type = "dm",
                         otherUserId = conv.user.id.toLong(),
-                        displayName = conv.user.username,
+                        displayName = displayLabel,
                         lastMessageId = conv.lastMessage.id.toLong(),
-                        lastMessagePreview = null, // Encrypted on backend; preview handled in chat UI.
+                        lastMessagePreview = preview,
                         unreadCount = conv.unreadCount.toLong(),
                         updatedAt = conv.lastMessage.timestamp
                     )

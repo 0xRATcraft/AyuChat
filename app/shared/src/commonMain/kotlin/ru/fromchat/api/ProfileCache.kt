@@ -33,29 +33,62 @@ object ProfileCache {
     fun get(userId: Int): UserProfile? = profiles[userId]
 
     fun put(profile: UserProfile) {
+        if (profile.isClientPreviewOnly) {
+            val hasIdentity =
+                profile.username.trim().isNotEmpty() || !profile.displayName.isNullOrBlank()
+            if (!hasIdentity) {
+                remove(profile.id)
+                return
+            }
+        }
         val cur = profiles
         profiles = cur + (profile.id to profile)
         schedulePersist()
     }
 
     /**
-     * Fills or refreshes a lightweight profile from a public chat [Message] (username, avatar URL).
-     * Skips when a full API profile is already stored ([UserProfile.isClientPreviewOnly] is false).
+     * Removes one user from the cache and persists. Does not clear full API profiles unless
+     * the caller only invokes this for preview cleanup flows.
      */
+    fun remove(userId: Int) {
+        val cur = profiles
+        if (userId !in cur) return
+        profiles = cur - userId
+        schedulePersist()
+    }
+
+    /**
+     * Drops [isClientPreviewOnly] entries that have no usable identity (blank username and
+     * display name). Avoids persisting or showing stale rows from failed loads / bad merges.
+     */
+    fun evictUnusableClientPreview(userId: Int) {
+        val p = get(userId) ?: return
+        if (!p.isClientPreviewOnly) return
+        val hasIdentity =
+            p.username.trim().isNotEmpty() || !p.displayName.isNullOrBlank()
+        if (!hasIdentity) remove(userId)
+    }
+
     /**
      * Seeds or refreshes a lightweight profile from a DM conversations list [User].
      * Skips when a full `/user/...` profile is already cached.
+     * Does not write a preview when the API user has no non-blank username (avoids caching empty identity).
      */
     fun mergeFromDmUser(user: User) {
         val existing = get(user.id)
         if (existing != null && !existing.isClientPreviewOnly) return
+
+        val incomingUsername = user.username.trim()
+        if (incomingUsername.isEmpty()) return
+
+        val incomingDisplayName =
+            user.displayName?.trim()?.takeIf { it.isNotEmpty() } ?: incomingUsername
+
         put(
             UserProfile(
                 id = user.id,
-                username = user.username.ifBlank { existing?.username.orEmpty() },
-                displayName = existing?.displayName?.takeIf { it.isNotBlank() }
-                    ?: user.username.takeIf { it.isNotBlank() }
-                    ?: existing?.username.orEmpty(),
+                username = incomingUsername,
+                displayName = existing?.displayName?.takeIf { it.isNotBlank() } ?: incomingDisplayName,
                 profilePicture = user.profile_picture?.takeIf { it.isNotBlank() }
                     ?: existing?.profilePicture,
                 bio = existing?.bio,
@@ -109,10 +142,42 @@ object ProfileCache {
             val raw = settings.getString(SETTINGS_KEY, "").ifBlank { return }
             runCatching {
                 val list = json.decodeFromString(ListSerializer(UserProfile.serializer()), raw)
-                val fromDisk = list.associateBy { it.id }
+                val usable = list.filter { p ->
+                    when {
+                        !p.isClientPreviewOnly -> true
+                        else ->
+                            p.username.trim().isNotEmpty() ||
+                                !p.displayName.isNullOrBlank()
+                    }
+                }
+                val fromDisk = usable.associateBy { it.id }
                 profiles = fromDisk + profiles
+                if (usable.size < list.size) {
+                    schedulePersist()
+                }
             }
+            pruneUnusableClientPreviewsLocked()
         }
+    }
+
+    /**
+     * Drops in-memory preview-only rows with no identity (e.g. bad runtime state after a failed merge).
+     * Call only while holding [persistMutex] or from [hydrateFromDisk] inside the lock.
+     */
+    private fun pruneUnusableClientPreviewsLocked() {
+        val snap = profiles
+        val toRemove = snap.filter { (_, p) ->
+            p.isClientPreviewOnly &&
+                p.username.trim().isEmpty() &&
+                p.displayName.isNullOrBlank()
+        }.keys
+        if (toRemove.isEmpty()) return
+        var cur = profiles
+        for (id in toRemove) {
+            cur = cur - id
+        }
+        profiles = cur
+        schedulePersist()
     }
 
     suspend fun clear() {

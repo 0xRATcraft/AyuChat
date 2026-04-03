@@ -30,6 +30,7 @@ data class User(
     val last_seen: String,
     val online: Boolean,
     val username: String,
+    @SerialName("display_name") val displayName: String? = null,
     val admin: Boolean? = null,
     val bio: String? = null,
     val profile_picture: String? = null
@@ -212,6 +213,11 @@ data class DmConversation(
     val user: User,
     val lastMessage: DmEnvelope,
     val unreadCount: Int
+)
+
+@Serializable
+data class RegisteredUserCountResponse(
+    val count: Int
 )
 
 @Serializable

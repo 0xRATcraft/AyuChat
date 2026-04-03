@@ -27,7 +27,11 @@ data class ChatPanelState(
     val isLoadingMore: Boolean = false,
     val typingUsers: List<TypingUser> = emptyList(),
     val titleAvatar: AvatarInfo? = null,
-    val profileUserId: Int? = null
+    val profileUserId: Int? = null,
+    /** Public chat: registered user count; null until first successful load or WS update. */
+    val publicGroupMemberCount: Int? = null,
+    /** Public chat: true until first count response (HTTP or WebSocket). */
+    val publicGroupMetaLoading: Boolean = false
 )
 
 @Serializable
@@ -419,6 +423,10 @@ abstract class ChatPanel(
 
     /** When true, tapping a sender username in a message opens their profile (e.g. public chat). */
     open val supportsNavigateToSenderProfile: Boolean
+        get() = false
+
+    /** When true, subtitle shows group label / member count instead of DM presence. */
+    open val usesPublicGroupSubtitle: Boolean
         get() = false
 }
 

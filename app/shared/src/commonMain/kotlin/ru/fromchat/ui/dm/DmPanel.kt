@@ -39,7 +39,7 @@ class DmPanel(
 ) {
     private val typingHandler = DmTypingHandler(coroutineScope, otherUserId)
     private val json = Json { ignoreUnknownKeys = true }
-    private var otherDisplayName: String = "User $otherUserId"
+    private var otherDisplayName: String = ""
     private var otherProfilePicture: String? = null
     private val dmEnvelopeMutex = Mutex()
 
@@ -59,7 +59,13 @@ class DmPanel(
     }
 
     init {
-        updateState { it.copy(title = "Direct message", profileUserId = otherUserId) }
+        updateState {
+            it.copy(
+                title = "",
+                titleAvatar = null,
+                profileUserId = otherUserId
+            )
+        }
         coroutineScope.launch {
             typingHandler.typingUsers.collect { users ->
                 updateState { it.copy(typingUsers = users) }
@@ -69,6 +75,13 @@ class DmPanel(
             runCatching {
                 ApiClient.getProfileById(otherUserId)
             }.onSuccess { profile ->
+                if (profile.username.isBlank() && profile.displayName.isNullOrBlank()) {
+                    ProfileCache.evictUnusableClientPreview(otherUserId)
+                    updateState {
+                        it.copy(title = "", titleAvatar = null, profileUserId = otherUserId)
+                    }
+                    return@onSuccess
+                }
                 ProfileCache.put(profile)
                 val displayName = profile.displayName?.takeIf { it.isNotBlank() } ?: profile.username
                 otherDisplayName = displayName
@@ -82,6 +95,11 @@ class DmPanel(
                         ),
                         profileUserId = otherUserId
                     )
+                }
+            }.onFailure {
+                ProfileCache.evictUnusableClientPreview(otherUserId)
+                updateState {
+                    it.copy(title = "", titleAvatar = null, profileUserId = otherUserId)
                 }
             }
         }
@@ -359,7 +377,7 @@ class DmPanel(
         val username = if (envelope.senderId == currentUserId) {
             "You"
         } else {
-            otherDisplayName
+            otherDisplayName.ifBlank { "User $otherUserId" }
         }
         return Message(
             id = envelope.id,

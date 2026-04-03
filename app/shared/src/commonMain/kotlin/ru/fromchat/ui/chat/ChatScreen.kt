@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
@@ -230,7 +229,8 @@ fun ChatScreen(
                                 }
                                 "newMessage", "messageEdited", "messageDeleted",
                                 "dmNew", "dmEdited", "dmDeleted",
-                                "typing", "stopTyping", "dmTyping", "stopDmTyping", "suspended", "account_deleted" -> {
+                                "typing", "stopTyping", "dmTyping", "stopDmTyping",
+                                "suspended", "account_deleted", "registeredUserCount" -> {
                                     Logger.d("ChatScreen", "handleWebSocketMessage for ${update.type}")
                                     try {
                                         panel.handleWebSocketMessage(wsMessage)
@@ -252,7 +252,7 @@ fun ChatScreen(
                     if (userId != null) UserStatusStore.update(userId, online, lastSeen)
                 }
                 "newMessage", "messageEdited", "messageDeleted", "dmNew", "dmEdited", "dmDeleted",
-                "dmTyping", "stopDmTyping" -> {
+                "dmTyping", "stopDmTyping", "registeredUserCount" -> {
                     scope.launch {
                         panel.handleWebSocketMessage(message)
                     }
@@ -401,6 +401,15 @@ fun ChatScreen(
                                     connectionStatus == ConnectionStatus.UPDATING -> "updating"
                                     connectionStatus != ConnectionStatus.CONNECTED -> "connecting"
                                     currentTypingUsers.isNotEmpty() -> "typing"
+                                    panel.usesPublicGroupSubtitle -> {
+                                        if (panelState.publicGroupMetaLoading ||
+                                            panelState.publicGroupMemberCount == null
+                                        ) {
+                                            "group"
+                                        } else {
+                                            "members:${panelState.publicGroupMemberCount}"
+                                        }
+                                    }
                                     panelState.profileUserId != null -> {
                                         val userStatus = statusMap[panelState.profileUserId]
                                         val statusText = userStatus?.let {
@@ -461,6 +470,23 @@ fun ChatScreen(
                                             val text = key.removePrefix("presence:")
                                             Text(
                                                 text = text,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                        key == "group" -> {
+                                            Text(
+                                                text = "group",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.padding(top = 2.dp)
+                                            )
+                                        }
+                                        key.startsWith("members:") -> {
+                                            val n = key.removePrefix("members:").toIntOrNull() ?: 0
+                                            Text(
+                                                text = "$n members",
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.padding(top = 2.dp)

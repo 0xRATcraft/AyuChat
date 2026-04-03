@@ -137,10 +137,20 @@ fun ProfileScreen(
                     ApiClient.getProfileById(targetUserId)
                 }
             }.onSuccess { profile ->
+                if (profile.username.isBlank() && profile.displayName.isNullOrBlank()) {
+                    cacheLookupId?.let { ProfileCache.evictUnusableClientPreview(it) }
+                    state = latestUi.copy(
+                        profile = null,
+                        isLoading = false,
+                        error = "Unable to load profile"
+                    )
+                    return@onSuccess
+                }
                 ProfileCache.put(profile)
                 state = latestUi.copy(profile = profile, isLoading = false, error = null)
             }.onFailure { err ->
                 val fallbackId = targetUserId ?: ownUserId
+                fallbackId?.let { ProfileCache.evictUnusableClientPreview(it) }
                 val fallback = fallbackId?.let { ProfileCache.get(it) }
                 state = latestUi.copy(
                     error = if (latestUi.profile == null && fallback == null) {
@@ -278,9 +288,17 @@ fun ProfileScreen(
                         )
                     }
                     profile != null -> {
-                        val profileLink = profile.username.takeIf { it.isNotBlank() }
-                            ?.let { "https://fromchat.ru/@$it" }
-                            ?: "https://fromchat.ru/?u=${profile.id}"
+                        /** Public chat message → profile: minimal identity (no @ handle, username row, member since). */
+                        val compactIdentityForPublicChat =
+                            useSharedElementFromNavigation && sharedSourceMessageId > 0
+                        val profileLink =
+                            if (compactIdentityForPublicChat) {
+                                "https://fromchat.ru/?u=${profile.id}"
+                            } else {
+                                profile.username.takeIf { it.isNotBlank() }
+                                    ?.let { "https://fromchat.ru/@$it" }
+                                    ?: "https://fromchat.ru/?u=${profile.id}"
+                            }
                         val scope = rememberCoroutineScope()
 
                         val verificationLabel = if (profile.verified == true) "Verified account" else "Click to verify"
@@ -299,7 +317,7 @@ fun ProfileScreen(
                                 userId = profile.id
                             )
                         }
-                        if (profile.username.isNotBlank()) {
+                        if (!compactIdentityForPublicChat && profile.username.isNotBlank()) {
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "@${profile.username}",
@@ -419,87 +437,105 @@ fun ProfileScreen(
                             )
                         }
 
-                        Category(Modifier.padding(top = 16.dp), title = "Details") {
-                            if (profile.username.isNotBlank()) {
-                                ListItem(
-                                    headline = "Username",
-                                    supportingText = profile.username,
-                                    leadingContent = {
-                                        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                        val showDetailsUsername =
+                            !compactIdentityForPublicChat && profile.username.isNotBlank()
+                        val showDetailsMemberSince =
+                            !compactIdentityForPublicChat &&
+                                !profile.createdAt.isNullOrBlank()
+                        val showDetailsBio = !profile.bio.isNullOrBlank()
+                        val showDetailsVerify = profile.verified == true || ApiClient.user?.id == 1
+                        if (
+                            showDetailsUsername ||
+                                showDetailsMemberSince ||
+                                showDetailsBio ||
+                                showDetailsVerify
+                        ) {
+                            Category(Modifier.padding(top = 16.dp), title = "Details") {
+                                if (showDetailsUsername) {
+                                    ListItem(
+                                        headline = "Username",
+                                        supportingText = profile.username,
+                                        divider = true,
+                                        dividerColor = CategoryDefaults.dividerColor,
+                                        dividerThickness = CategoryDefaults.dividerThickness,
+                                        leadingContent = {
+                                            CompositionLocalProvider(
+                                                LocalContentColor provides MaterialTheme.colorScheme.onSurface
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.AlternateEmail,
+                                                    contentDescription = null
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+                                if (showDetailsMemberSince) {
+                                    ListItem(
+                                        headline = "Member since",
+                                        supportingText = profile.createdAt,
+                                        divider = true,
+                                        dividerColor = CategoryDefaults.dividerColor,
+                                        dividerThickness = CategoryDefaults.dividerThickness,
+                                        leadingContent = {
+                                            CompositionLocalProvider(
+                                                LocalContentColor provides MaterialTheme.colorScheme.onSurface
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.CalendarMonth,
+                                                    contentDescription = null
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+                                if (showDetailsBio) {
+                                    ListItem(
+                                        headline = "Bio",
+                                        supportingText = profile.bio,
+                                        divider = true,
+                                        dividerColor = CategoryDefaults.dividerColor,
+                                        dividerThickness = CategoryDefaults.dividerThickness,
+                                        leadingContent = {
+                                            CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
+                                                Icon(
+                                                    imageVector = Icons.Filled.Info,
+                                                    contentDescription = null
+                                                )
+                                            }
+                                        }
+                                    )
+                                }
+
+                                if (showDetailsVerify) {
+                                    val onVerifyToggle: () -> Unit = {
+                                        scope.launch {
+                                            val result = withContext(Dispatchers.Default) {
+                                                runCatching { ApiClient.verifyUser(profile.id) }.getOrNull()
+                                            }
+                                            result?.verified?.let { newVerified ->
+                                                val updated = state.profile?.copy(verified = newVerified)
+                                                state = state.copy(profile = updated)
+                                                updated?.let { ProfileCache.put(it) }
+                                            }
+                                        }
+                                    }
+
+                                    ListItem(
+                                        headline = "Verification",
+                                        supportingText = verificationLabel,
+                                        leadingContent = {
                                             Icon(
-                                                imageVector = Icons.Filled.AlternateEmail,
+                                                imageVector = Icons.Filled.Verified,
                                                 contentDescription = null
                                             )
-                                        }
-                                    },
-                                    divider = true,
-                                    dividerColor = CategoryDefaults.dividerColor,
-                                    dividerThickness = CategoryDefaults.dividerThickness
-                                )
-                            }
-
-                            if (!profile.bio.isNullOrBlank()) {
-                                ListItem(
-                                    headline = "Bio",
-                                    supportingText = profile.bio,
-                                    divider = true,
-                                    dividerColor = CategoryDefaults.dividerColor,
-                                    dividerThickness = CategoryDefaults.dividerThickness,
-                                    leadingContent = {
-                                        CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Info,
-                                                contentDescription = null
-                                            )
-                                        }
-                                    }
-                                )
-                            }
-
-                            ListItem(
-                                headline = "Member since",
-                                supportingText = profile.createdAt,
-                                divider = true,
-                                dividerColor = CategoryDefaults.dividerColor,
-                                dividerThickness = CategoryDefaults.dividerThickness,
-                                leadingContent = {
-                                    CompositionLocalProvider(LocalContentColor provides MaterialTheme.colorScheme.onSurface) {
-                                        Icon(
-                                            imageVector = Icons.Filled.CalendarMonth,
-                                            contentDescription = null
-                                        )
-                                    }
+                                        },
+                                        divider = true,
+                                        dividerColor = CategoryDefaults.dividerColor,
+                                        dividerThickness = CategoryDefaults.dividerThickness,
+                                        onClick = if (ApiClient.user?.id == 1) onVerifyToggle else null
+                                    )
                                 }
-                            )
-
-                            if (profile.verified == true || ApiClient.user?.id == 1) {
-                                val onVerifyToggle: () -> Unit = {
-                                    scope.launch {
-                                        val result = withContext(Dispatchers.Default) {
-                                            runCatching { ApiClient.verifyUser(profile.id) }.getOrNull()
-                                        }
-                                        result?.verified?.let { newVerified ->
-                                            val updated = state.profile?.copy(verified = newVerified)
-                                            state = state.copy(profile = updated)
-                                            updated?.let { ProfileCache.put(it) }
-                                        }
-                                    }
-                                }
-
-                                ListItem(
-                                    headline = "Verification",
-                                    supportingText = verificationLabel,
-                                    leadingContent = {
-                                        Icon(
-                                            imageVector = Icons.Filled.Verified,
-                                            contentDescription = null
-                                        )
-                                    },
-                                    divider = true,
-                                    dividerColor = CategoryDefaults.dividerColor,
-                                    dividerThickness = CategoryDefaults.dividerThickness,
-                                    onClick = if (ApiClient.user?.id == 1) onVerifyToggle else null
-                                )
                             }
                         }
                     }

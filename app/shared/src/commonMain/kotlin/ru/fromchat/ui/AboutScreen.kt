@@ -1,8 +1,5 @@
-@file:Suppress("NOTHING_TO_INLINE")
-
 package ru.fromchat.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,25 +24,50 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import org.jetbrains.compose.resources.painterResource
+import coil3.compose.AsyncImage
+import com.pr0gramm3r101.components.Category
+import com.pr0gramm3r101.components.ListItem
+import com.pr0gramm3r101.ui.Website
+import org.jetbrains.compose.resources.DrawableResource
 import org.jetbrains.compose.resources.stringResource
+import org.jetbrains.compose.resources.vectorResource
 import ru.fromchat.Res
 import ru.fromchat.about
+import ru.fromchat.about_link_max
+import ru.fromchat.about_link_telegram
+import ru.fromchat.about_link_website
+import ru.fromchat.about_version
 import ru.fromchat.app_desc
-import ru.fromchat.app_icon
 import ru.fromchat.app_name
 import ru.fromchat.back
 
+private const val URL_TELEGRAM = "https://t.me/fromchat_ch"
+private const val URL_MAX = "https://maxgate.io/fromchat_ch"
+private const val URL_WEBSITE = "https://fromchat.ru"
+
+@Composable
+private fun AboutBrandListIcon(drawable: DrawableResource) {
+    Icon(
+        imageVector = vectorResource(drawable),
+        contentDescription = null,
+        modifier = Modifier.size(24.dp),
+        tint = MaterialTheme.colorScheme.onSurface,
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-inline fun AboutScreen() {
+fun AboutScreen() {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(rememberTopAppBarState())
     val navController = LocalNavController.current
-    
+    val uriHandler = LocalUriHandler.current
+
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
@@ -69,37 +91,86 @@ inline fun AboutScreen() {
             )
         },
     ) { innerPadding ->
-        Box(Modifier.padding(innerPadding)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(innerPadding)
+        ) {
             Column(
                 Modifier
-                    .padding(top = 16.dp, start = 16.dp, end = 16.dp)
-                    .verticalScroll(rememberScrollState())
-                    .fillMaxWidth(),
+                    .fillMaxWidth()
+                    .padding(top = 16.dp, start = 16.dp, end = 16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(Modifier.padding(bottom = 10.dp)) {
-                    Image(
-                        painter = painterResource(Res.drawable.app_icon),
+                Box(Modifier.padding(bottom = 12.dp)) {
+                    AsyncImage(
+                        model = Res.getUri("drawable/logo_square.svg"),
                         contentDescription = null,
+                        contentScale = ContentScale.Fit,
                         modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .size(70.dp)
+                            .size(88.dp)
+                            .clip(RoundedCornerShape(28.dp))
                     )
                 }
                 Text(
                     text = stringResource(Res.string.app_name),
-                    fontSize = 20.sp,
+                    fontSize = 22.sp,
                     style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+                Text(
+                    text = stringResource(Res.string.about_version),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(bottom = 16.dp)
                 )
                 Text(
                     text = stringResource(Res.string.app_desc),
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            Category(Modifier.padding(top = 16.dp)) {
+                ListItem(
+                    headline = stringResource(Res.string.about_link_telegram),
+                    supportingText = URL_TELEGRAM,
+                    onClick = { uriHandler.openUri(URL_TELEGRAM) },
+                    divider = true,
+                    dividerColor = MaterialTheme.colorScheme.surface,
+                    dividerThickness = 2.dp,
+                    leadingContent = {
+                        AboutBrandListIcon(Res.drawable.about_link_telegram)
+                    }
+                )
+                ListItem(
+                    headline = stringResource(Res.string.about_link_max),
+                    supportingText = URL_MAX,
+                    onClick = { uriHandler.openUri(URL_MAX) },
+                    divider = true,
+                    dividerColor = MaterialTheme.colorScheme.surface,
+                    dividerThickness = 2.dp,
+                    leadingContent = {
+                        AboutBrandListIcon(Res.drawable.about_link_max)
+                    }
+                )
+                ListItem(
+                    headline = stringResource(Res.string.about_link_website),
+                    supportingText = URL_WEBSITE,
+                    onClick = { uriHandler.openUri(URL_WEBSITE) },
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Outlined.Website,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
                 )
             }
         }
     }
 }
-

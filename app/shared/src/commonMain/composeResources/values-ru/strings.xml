@@ -1,4 +1,10 @@
 <resources>
+    <string name="about_version">Версия 1.0</string>
+    <string name="about_link_telegram">Telegram</string>
+    <string name="about_link_max">MAX</string>
+    <string name="about_link_website">Сайт</string>
+    <string name="app_desc">100% бесплатный и открытый мессенджер. Поддерживает self-hosted установку на своём сервере.</string>
+
     <!-- Typing Indicators -->
     <string name="typing_single">%1$s печатает…</string>
     <string name="typing_two">%1$s и %2$s печатают…</string>

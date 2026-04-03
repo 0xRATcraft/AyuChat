@@ -69,6 +69,7 @@ kotlin {
             // Coil for image loading (multiplatform)
             implementation(libs.coil.compose)
             implementation(libs.coil.network.ktor3)
+            implementation(libs.coil.svg)
 
             // SQLDelight runtime
             implementation(libs.sqldelight.runtime)

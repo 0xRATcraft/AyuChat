@@ -188,6 +188,14 @@ object ApiClient {
             }
             .body()
 
+    suspend fun getRegisteredUserCount(): Int =
+        http
+            .get("${Config.apiBaseUrl}/user/stats/registered-count") {
+                contentType(ContentType.Application.Json)
+            }
+            .body<RegisteredUserCountResponse>()
+            .count
+
     suspend fun checkSimilarity(userId: Int): SimilarityResult? =
         runCatching {
             http

@@ -4,6 +4,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.Message
 import ru.fromchat.api.MessageDeletedData
@@ -49,14 +51,34 @@ class PublicChatPanel(
     override val supportsNavigateToSenderProfile: Boolean
         get() = true
 
+    override val usesPublicGroupSubtitle: Boolean
+        get() = true
+
     init {
-        updateState { it.copy(title = chatName) }
-        // Observe typing users from the handler and update panel state
+        updateState {
+            it.copy(
+                title = chatName,
+                titleAvatar = AvatarInfo(displayName = chatName, profilePictureUrl = null),
+                publicGroupMetaLoading = true,
+                publicGroupMemberCount = null
+            )
+        }
         scope.launch {
             typingHandler.typingUsers.collect { users ->
                 Logger.d("PublicChatPanel", "Typing users updated in handler: ${users.map { it.username }}")
                 updateState { it.copy(typingUsers = users.filter { it.userId != currentUserId }) }
             }
+        }
+        scope.launch(Dispatchers.Default) {
+            runCatching { ApiClient.getRegisteredUserCount() }
+                .onSuccess { n ->
+                    updateState { s ->
+                        s.copy(publicGroupMemberCount = n, publicGroupMetaLoading = false)
+                    }
+                }
+                .onFailure {
+                    updateState { s -> s.copy(publicGroupMetaLoading = false) }
+                }
         }
     }
 
@@ -273,6 +295,16 @@ class PublicChatPanel(
                 val typingData = json.decodeFromJsonElement(TypingUpdateData.serializer(), data)
                 Logger.d("PublicChatPanel", "Received stopTyping event for user: ${typingData.username}")
                 typingHandler.handleStopTypingEvent(typingData.userId)
+            }
+            "registeredUserCount" -> {
+                val data = updateMessage.data ?: return
+                val obj = data.jsonObject
+                val c = obj["count"]?.jsonPrimitive?.content?.toIntOrNull()
+                if (c != null) {
+                    updateState { s ->
+                        s.copy(publicGroupMemberCount = c, publicGroupMetaLoading = false)
+                    }
+                }
             }
             "statusUpdate" -> {
                 // Handled in ChatScreen or by global WebSocketManager listeners

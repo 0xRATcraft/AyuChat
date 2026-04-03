@@ -1,0 +1,10 @@
+---
+description: Never search Gradle dependency caches with grep or ripgrep
+alwaysApply: true
+---
+
+# Gradle caches — no grep/ripgrep
+
+Do **not** run `grep`, `ripgrep` (`rg`), or similar searches inside Gradle cache directories (e.g. `~/.gradle/caches`, `**/.gradle/caches`, or paths under the Gradle user home) to find framework or dependency source.
+
+Use instead: project source under the workspace, official docs, IDE navigation, or dependency coordinates declared in `gradle/libs.versions.toml` / `*.gradle.kts`.

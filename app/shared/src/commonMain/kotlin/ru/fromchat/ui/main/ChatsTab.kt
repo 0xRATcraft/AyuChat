@@ -12,16 +12,19 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ListItem
-import androidx.compose.material3.MediumTopAppBar
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -31,9 +34,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import coil3.compose.AsyncImage
 import org.jetbrains.compose.resources.stringResource
 import ru.fromchat.Res
 import ru.fromchat.api.ApiClient
@@ -43,10 +48,11 @@ import ru.fromchat.api.ProfileCache
 import ru.fromchat.api.db.CachedConversation
 import ru.fromchat.api.db.MessageCacheStore
 import ru.fromchat.chat_last_mesaage
-import ru.fromchat.public_chat
 import ru.fromchat.net.NetworkConnectivity
+import ru.fromchat.public_chat
 import ru.fromchat.ui.ConnectingEllipsis
 import ru.fromchat.ui.LocalNavController
+import ru.fromchat.ui.branding.FromChatBrandTitle
 import ru.fromchat.ui.chat.Avatar
 
 @Composable
@@ -78,13 +84,9 @@ private fun ChatRowAvatar(
 @Composable
 fun ChatsTab() {
     val navController = LocalNavController.current
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val connectionStatus by ConnectionStateStore.status.collectAsState()
     val online by NetworkConnectivity.isOnline.collectAsState(initial = true)
     var dmConversations by remember { mutableStateOf<List<CachedConversation>>(emptyList()) }
-    var publicListAvatarUserId by remember { mutableStateOf<Int?>(null) }
-    var publicListAvatarUrl by remember { mutableStateOf<String?>(null) }
-    var publicListAvatarLabel by remember { mutableStateOf<String?>(null) }
     var publicLastMessagePreview by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -96,17 +98,6 @@ fun ChatsTab() {
         runCatching {
             val last = MessageCacheStore.loadRecentPublicMessages(1).lastOrNull()
             publicLastMessagePreview = last?.content?.trim()?.takeIf { it.isNotEmpty() }
-            if (last != null && last.user_id > 0) {
-                ProfileCache.mergePreviewFromPublicMessage(last)
-                publicListAvatarUserId = last.user_id
-                publicListAvatarUrl = last.profile_picture
-                publicListAvatarLabel = last.username.takeIf { it.isNotBlank() }
-                    ?: ProfileCache.get(last.user_id)?.displayName?.takeIf { it.isNotBlank() }
-            } else {
-                publicListAvatarUserId = null
-                publicListAvatarUrl = null
-                publicListAvatarLabel = null
-            }
         }
 
         // Then refresh from network and update cache + state.
@@ -129,79 +120,90 @@ fun ChatsTab() {
     }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            MediumTopAppBar(
+            TopAppBar(
                 title = {
-                    AnimatedContent(
-                        targetState = titleKey,
-                        transitionSpec = {
-                            (slideInVertically { it / 2 } + fadeIn()) togetherWith
-                                (slideOutVertically { -it / 2 } + fadeOut())
-                        },
-                        label = "chats_title"
-                    ) { key ->
-                        when (key) {
-                            "connecting" -> {
-                                val style = MaterialTheme.typography.headlineSmall
-                                val color = MaterialTheme.colorScheme.onSurface
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Start
-                                ) {
-                                    Text(
-                                        text = "Connecting",
-                                        style = style,
-                                        color = color,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                    ConnectingEllipsis(
-                                        fontSize = style.fontSize,
-                                        color = color,
-                                        baseStyle = style
-                                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Start
+                    ) {
+                        AsyncImage(
+                            model = Res.getUri("drawable/logo_square.svg"),
+                            contentDescription = null,
+                            contentScale = ContentScale.Fit,
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                        )
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        AnimatedContent(
+                            targetState = titleKey,
+                            modifier = Modifier.weight(1f),
+                            transitionSpec = {
+                                (slideInVertically { it / 2 } + fadeIn()) togetherWith
+                                    (slideOutVertically { -it / 2 } + fadeOut())
+                            },
+                            label = "chats_title"
+                        ) { key ->
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                when (key) {
+                                    "connecting" -> {
+                                        val style = MaterialTheme.typography.titleLarge
+                                        val color = MaterialTheme.colorScheme.onSurface
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Start
+                                        ) {
+                                            Text(
+                                                text = "Connecting",
+                                                style = style,
+                                                color = color,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            ConnectingEllipsis(
+                                                fontSize = style.fontSize,
+                                                color = color,
+                                                baseStyle = style
+                                            )
+                                        }
+                                    }
+                                    "updating" -> {
+                                        Text(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            text = "Updating...",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+                                    else -> {
+                                        FromChatBrandTitle(text = "FromChat")
+                                    }
                                 }
-                            }
-                            "updating" -> {
-                                Text(
-                                    text = "Updating...",
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            else -> {
-                                Text(
-                                    text = "FromChat",
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
                             }
                         }
                     }
-                },
-                scrollBehavior = scrollBehavior
+                }
             )
         }
     ) { innerPadding ->
         val publicChatTitle = stringResource(Res.string.public_chat)
         LazyColumn(contentPadding = innerPadding) {
             item {
-                val publicUid = publicListAvatarUserId
-                val publicPic = publicListAvatarUrl
-                val publicLabel = publicListAvatarLabel?.takeIf { it.isNotBlank() } ?: publicChatTitle
                 ListItem(
                     leadingContent = {
                         ChatRowAvatar(
-                            profilePictureUrl = publicPic,
-                            displayNameForInitials = publicLabel,
-                            onClick = {
-                                when {
-                                    publicUid != null && publicUid > 0 ->
-                                        navController.navigate("profile/$publicUid")
-                                    else -> navController.navigate("chats/publicChat")
-                                }
-                            }
+                            profilePictureUrl = null,
+                            displayNameForInitials = publicChatTitle,
+                            onClick = { navController.navigate("chats/publicChat") }
                         )
                     },
                     headlineContent = {
@@ -229,15 +231,15 @@ fun ChatsTab() {
                 val conv = dmConversations[index]
                 val cached = ProfileCache.get(conv.otherUserId)
                 val avatarUrl = cached?.profilePicture
-                val avatarLabel = cached?.displayName?.takeIf { it.isNotBlank() }
+                val peerTitle = cached?.displayName?.takeIf { it.isNotBlank() }
                     ?: cached?.username?.takeIf { it.isNotBlank() }
                     ?: conv.displayName.ifBlank { "User ${conv.otherUserId}" }
-                val preview = conv.lastMessagePreview ?: "Direct messages"
+                val preview = conv.lastMessagePreview?.trim().orEmpty()
                 ListItem(
                     leadingContent = {
                         ChatRowAvatar(
                             profilePictureUrl = avatarUrl,
-                            displayNameForInitials = avatarLabel,
+                            displayNameForInitials = peerTitle,
                             onClick = {
                                 if (conv.otherUserId != 0) {
                                     navController.navigate("profile/${conv.otherUserId}")
@@ -247,7 +249,15 @@ fun ChatsTab() {
                     },
                     headlineContent = {
                         Text(
-                            text = preview,
+                            text = peerTitle,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    },
+                    supportingContent = {
+                        Text(
+                            text = preview.takeIf { it.isNotEmpty() }
+                                ?: stringResource(Res.string.chat_last_mesaage),
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
