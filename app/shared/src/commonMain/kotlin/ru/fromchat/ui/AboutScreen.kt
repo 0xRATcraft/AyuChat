@@ -29,7 +29,6 @@ import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.pr0gramm3r101.components.Category
 import com.pr0gramm3r101.components.ListItem
@@ -46,6 +45,7 @@ import ru.fromchat.about_version
 import ru.fromchat.app_desc
 import ru.fromchat.app_name
 import ru.fromchat.back
+import ru.fromchat.ui.branding.FromChatBrandTitle
 
 private const val URL_TELEGRAM = "https://t.me/fromchat_ch"
 private const val URL_MAX = "https://maxgate.io/fromchat_ch"
@@ -113,11 +113,9 @@ fun AboutScreen() {
                             .clip(RoundedCornerShape(28.dp))
                     )
                 }
-                Text(
+                FromChatBrandTitle(
                     text = stringResource(Res.string.app_name),
-                    fontSize = 22.sp,
-                    style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier.padding(bottom = 4.dp)
+                    modifier = Modifier.padding(bottom = 4.dp),
                 )
                 Text(
                     text = stringResource(Res.string.about_version),
