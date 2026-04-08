@@ -106,11 +106,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -148,6 +150,7 @@ import ru.fromchat.materialYou_d
 import ru.fromchat.password_length_error
 import ru.fromchat.passwords_dont_match
 import ru.fromchat.platform.openAppNotificationSettings
+import ru.fromchat.platform.currentDeviceInfo
 import ru.fromchat.settings_account_delete
 import ru.fromchat.settings_account_delete_confirm_body
 import ru.fromchat.settings_account_delete_confirm_title
@@ -212,6 +215,7 @@ import ru.fromchat.theme
 import ru.fromchat.ui.Theme
 import ru.fromchat.ui.dynamicThemeEnabled
 import ru.fromchat.ui.theme
+import coil3.compose.AsyncImage
 
 @Composable
 private fun SettingsListLeadingIcon(imageVector: ImageVector) {
@@ -585,13 +589,97 @@ fun SettingsNotificationsScreen(onBack: () -> Unit) {
 }
 
 private fun formatDeviceLine(d: DeviceSessionInfo, fallbackLabel: String): String {
-    val parts = listOfNotNull(d.deviceName, d.osName, d.browserName).filter { it.isNotBlank() }
+    val parts = listOfNotNull(
+        d.deviceName,
+        d.brand,
+        d.model,
+        deviceSessionOsLine(d),
+        d.browserName,
+        d.deviceType
+    ).mapNotNull { it.trim().takeIf { it.isNotBlank() } }
+        .distinct()
     return if (parts.isNotEmpty()) parts.joinToString(" • ") else (d.deviceType?.takeIf { it.isNotBlank() } ?: fallbackLabel)
+}
+
+private fun deviceSessionForCurrentDevice(d: DeviceSessionInfo): DeviceSessionInfo {
+    if (!d.current) return d
+    val current = currentDeviceInfo()
+
+    val localOsName = current.osName?.trim()?.takeIf { it.isNotBlank() }
+    val localOsVersion = current.osVersion?.trim()?.takeIf { it.isNotBlank() }
+    val localDeviceType = current.deviceType?.trim()?.takeIf { it.isNotBlank() }
+    val localDeviceName = current.deviceName?.trim()?.takeIf { it.isNotBlank() }
+    val localBrand = current.brand?.trim()?.takeIf { it.isNotBlank() }
+    val localModel = current.model?.trim()?.takeIf { it.isNotBlank() }
+    val remoteDeviceName = d.deviceName?.trim()?.takeIf { it.isNotBlank() }
+    val remoteBrand = d.brand?.trim()?.takeIf { it.isNotBlank() }
+    val remoteModel = d.model?.trim()?.takeIf { it.isNotBlank() }
+
+    return d.copy(
+        osName = localOsName ?: d.osName,
+        osVersion = localOsVersion ?: d.osVersion,
+        deviceType = localDeviceType ?: d.deviceType,
+        deviceName = remoteDeviceName ?: localDeviceName ?: d.deviceName,
+        brand = remoteBrand ?: localBrand ?: d.brand,
+        model = remoteModel ?: localModel ?: d.model
+    )
 }
 
 private fun formatDeviceLastSeen(iso: String?): String {
     if (iso.isNullOrBlank()) return "—"
     return iso.replace("T", " ").take(19)
+}
+
+private fun resolveDeviceOsName(d: DeviceSessionInfo): String? {
+    val direct = normalizeDeviceOsName(d.osName)
+    if (direct != null) return direct
+    return normalizeDeviceOsName(inferDeviceOsFromSession(d))
+}
+
+private fun normalizeDeviceOsName(raw: String?): String? {
+    val trimmed = raw?.trim() ?: return null
+    if (trimmed.isBlank()) return null
+    val lower = trimmed.lowercase()
+    return when {
+        "windows" in lower || "win" in lower -> "Windows"
+        "mac" in lower || "os x" in lower || "darwin" in lower -> "macOS"
+        "linux" in lower -> "Linux"
+        "android" in lower -> "Android"
+        "ios" in lower || "iphone" in lower || "ipad" in lower -> "iOS"
+        else -> trimmed
+    }
+}
+
+private fun inferDeviceOsFromSession(d: DeviceSessionInfo): String? {
+    val type = d.deviceType?.lowercase().orEmpty()
+    val name = d.deviceName?.lowercase().orEmpty()
+    val brand = d.brand?.lowercase().orEmpty()
+    val model = d.model?.lowercase().orEmpty()
+    val browser = d.browserName?.lowercase().orEmpty()
+    val isMobile = "mobile" in type || "tablet" in type || "phone" in type
+    return when {
+        isMobile && (brand.contains("apple") || name.contains("iphone") || name.contains("ipad") || model.contains("iphone") || model.contains("ipad") || browser.contains("ios")) -> "iOS"
+        isMobile && (brand.contains("android") || name.contains("android") || model.contains("android") || browser.contains("android")) -> "Android"
+        isMobile && (brand.contains("samsung") || brand.contains("xiaomi") || brand.contains("huawei") || brand.contains("oppo") || brand.contains("vivo") || brand.contains("pixel") || brand.contains("oneplus") || brand.contains("google") || brand.contains("lg") || brand.contains("motorola") || brand.contains("honor") || brand.contains("realme")) -> "Android"
+        "android" in browser || "android" in brand || "android" in model -> "Android"
+        brand.contains("apple") || model.contains("iphone") || model.contains("ipad") || browser.contains("ios") || browser.contains("iphone") || browser.contains("ipad") -> "iOS"
+        else -> null
+    }
+}
+
+private fun deviceSessionOsLine(d: DeviceSessionInfo): String? {
+    val os = resolveDeviceOsName(d) ?: return null
+    val version = d.osVersion?.trim().orEmpty()
+    return if (version.isBlank()) os else "$os $version"
+}
+
+private fun deviceSessionLogoResource(d: DeviceSessionInfo): String? {
+    return when (resolveDeviceOsName(d)?.lowercase()) {
+        "windows", "windows nt" -> "drawable/os_windows.svg"
+        "mac", "mac os", "macos" -> "drawable/os_macos.svg"
+        "linux" -> "drawable/os_linux.svg"
+        else -> null
+    }
 }
 
 private fun deviceHeadline(d: DeviceSessionInfo, fallback: String): String {
@@ -604,16 +692,25 @@ private fun deviceHeadline(d: DeviceSessionInfo, fallback: String): String {
 }
 
 private fun deviceDetailLine(d: DeviceSessionInfo): String? {
+    val deviceType = d.deviceType?.trim()?.takeIf { it.isNotBlank() && !it.equals("other", ignoreCase = true) }
+    val brand = d.brand?.trim()?.takeIf { it.isNotBlank() }
+    val model = d.model?.trim()?.takeIf { it.isNotBlank() }
+    val browser = d.browserName?.trim()
+        ?.takeIf { it.isNotBlank() && !it.equals("other", ignoreCase = true) && !it.equals("desktop", ignoreCase = true) }
+
     val parts = buildList {
-        d.osName?.takeIf { it.isNotBlank() }?.let { add(it.trim()) }
-        d.browserName?.takeIf { it.isNotBlank() }?.let { add(it.trim()) }
+        deviceSessionOsLine(d)?.let { add(it.trim()) }
+        brand?.let { add(it) }
+        model?.let { add(it) }
+        deviceType?.let { add(it) }
+        browser?.let { add(it) }
     }
-    return if (parts.isNotEmpty()) parts.joinToString(" · ") else null
+    return if (parts.isNotEmpty()) parts.joinToString(" • ") else null
 }
 
 private fun deviceSessionIcon(d: DeviceSessionInfo): ImageVector {
     val type = d.deviceType?.lowercase().orEmpty()
-    val os = d.osName?.lowercase().orEmpty()
+    val os = resolveDeviceOsName(d)?.lowercase().orEmpty()
     val hasBrowser = d.browserName?.isNotBlank() == true
     return when {
         "tablet" in type -> Icons.Filled.TabletAndroid
@@ -692,7 +789,7 @@ private fun DeviceSessionDetailBottomSheet(
         )
         DeviceSessionDetailParam(
             stringResource(Res.string.settings_devices_field_os),
-            d.osName
+            resolveDeviceOsName(d)
         )
         DeviceSessionDetailParam(
             stringResource(Res.string.settings_devices_field_os_version),
@@ -789,6 +886,8 @@ private fun DeviceSessionRow(
 ) {
     val headline = remember(d) { deviceHeadline(d, unknownDeviceLabel) }
     val detail = remember(d) { deviceDetailLine(d) }
+    val osLogo = remember(d) { deviceSessionLogoResource(d) }
+    val fallbackIcon = remember(d) { deviceSessionIcon(d) }
     val interaction = remember(d.sessionId) { MutableInteractionSource() }
     Row(
         modifier = Modifier
@@ -808,12 +907,22 @@ private fun DeviceSessionRow(
                 .background(MaterialTheme.colorScheme.surfaceContainerHigh),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = deviceSessionIcon(d),
-                contentDescription = null,
-                modifier = Modifier.size(28.dp),
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            if (osLogo != null) {
+                AsyncImage(
+                    model = Res.getUri(osLogo),
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    contentScale = ContentScale.Fit,
+                    colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onSurface)
+                )
+            } else {
+                Icon(
+                    imageVector = fallbackIcon,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
         Column(
             modifier = Modifier
@@ -998,10 +1107,11 @@ fun SettingsDevicesScreen(onBack: () -> Unit) {
                                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow
                             ) {
                                 sessionList.forEachIndexed { index, d ->
+                                    val displaySession = deviceSessionForCurrentDevice(d)
                                     DeviceSessionRow(
-                                        d = d,
+                                        d = displaySession,
                                         unknownDeviceLabel = unknownDeviceLabel,
-                                        onOpen = { sheetDevice = d }
+                                        onOpen = { sheetDevice = displaySession }
                                     )
                                     if (index < sessionList.lastIndex) {
                                         SettingsSurfaceCutDivider()

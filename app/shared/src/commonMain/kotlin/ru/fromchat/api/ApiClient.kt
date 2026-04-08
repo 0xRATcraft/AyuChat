@@ -12,6 +12,7 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.plugins.logging.SIMPLE
+import io.ktor.client.request.header
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.pingInterval
 import io.ktor.client.request.bearerAuth
@@ -39,6 +40,7 @@ import com.pr0gramm3r101.utils.crypto.Base64
 import ru.fromchat.crypto.IdentityKeyManager
 import ru.fromchat.crypto.transport.TransportCiphertext
 import ru.fromchat.crypto.transport.TransportCrypto
+import ru.fromchat.platform.currentDeviceInfo
 
 /**
  * Creates a platform-specific HTTP client that supports WebSockets
@@ -69,10 +71,23 @@ object ApiClient {
             pingInterval = 5000.milliseconds
         }
 
+        val currentDevice = currentDeviceInfo()
+        val osName = currentDevice.osName?.takeIfNotBlank()
+        val osVersion = currentDevice.osVersion?.takeIfNotBlank()
+        val brand = currentDevice.brand?.takeIfNotBlank()
+        val model = currentDevice.model?.takeIfNotBlank()
+        val userAgent = buildLoginUserAgent(
+            osName = osName,
+            osVersion = osVersion,
+            model = model,
+            brand = brand
+        )
+
         defaultRequest {
             token?.let { authToken ->
                 bearerAuth(authToken)
             }
+            header("User-Agent", userAgent)
         }
 
         // Handle HTTP errors and auth errors globally
@@ -95,6 +110,36 @@ object ApiClient {
                     )
                 }
             }
+        }
+    }
+
+    private fun String?.takeIfNotBlank(): String? =
+        this?.trim()?.takeIf { it.isNotBlank() }
+
+    private fun formatIosVersion(version: String): String =
+        version
+            .trim()
+            .replace("-", "_")
+            .replace(".", "_")
+            .trim('_')
+
+    private fun buildLoginUserAgent(
+        osName: String?,
+        osVersion: String?,
+        model: String?,
+        brand: String?
+    ): String {
+        val safeModel = model?.ifBlank { null } ?: brand?.ifBlank { null } ?: "device"
+        return when {
+            osName?.contains("ios", ignoreCase = true) == true -> {
+                val version = osVersion?.let(::formatIosVersion)?.ifBlank { "17_0" } ?: "17_0"
+                "Mozilla/5.0 (iPhone; CPU iPhone OS $version like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+            }
+            osName?.contains("android", ignoreCase = true) == true -> {
+                val version = osVersion?.ifBlank { "10" } ?: "10"
+                "FromChat/1.0 (Linux; Android $version; $safeModel)"
+            }
+            else -> "FromChat/1.0 ($safeModel)"
         }
     }
 
