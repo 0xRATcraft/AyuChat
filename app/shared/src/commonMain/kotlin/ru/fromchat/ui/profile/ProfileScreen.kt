@@ -40,6 +40,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTopAppBarState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -74,10 +75,21 @@ import ru.fromchat.*
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.ProfileCache
 import ru.fromchat.api.UserProfile
+import ru.fromchat.api.UserStatus
+import ru.fromchat.api.UserStatusStore
 import ru.fromchat.ui.LocalNavController
 import ru.fromchat.ui.chat.Avatar
+import ru.fromchat.ui.chat.TypingIndicator
 import ru.fromchat.ui.chat.publicChatProfileSharedAvatarKey
 import ru.fromchat.ui.scaleOnPress
+import ru.fromchat.utils.formatLastSeen
+import ru.fromchat.utils.rememberLastSeenFormatStrings
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 
 private sealed interface ProfileLoadError {
     data object Generic : ProfileLoadError
@@ -331,6 +343,26 @@ fun ProfileScreen(
                         val verificationLabel =
                             if (profile.verified == true) verifiedSupport else verifyPromptSupport
                         val isOwnProfile = ApiClient.user?.id == profile.id
+                        val statusMap by UserStatusStore.status.collectAsState()
+                        val lastSeenFormat = rememberLastSeenFormatStrings()
+                        val statusState = statusMap[profile.id] ?: UserStatus(
+                            online = profile.online,
+                            lastSeen = profile.lastSeen
+                        )
+                        val typingUsers = statusState.typingUsernames
+                        val statusText = if (statusState.online) {
+                            stringResource(Res.string.presence_online)
+                        } else {
+                            formatLastSeen(false, statusState.lastSeen, lastSeenFormat)
+                                .ifEmpty { stringResource(Res.string.presence_recently) }
+                        }
+                        val statusStateKey = if (typingUsers.isNotEmpty()) {
+                            "typing:${typingUsers.joinToString("|")}"
+                        } else if (statusState.online) {
+                            "online"
+                        } else {
+                            "offline"
+                        }
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -345,13 +377,30 @@ fun ProfileScreen(
                                 userId = profile.id
                             )
                         }
-                        if (!compactIdentityForPublicChat && profile.username.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "@${profile.username}",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        AnimatedContent(
+                            targetState = statusStateKey,
+                            transitionSpec = {
+                                (slideInVertically { it / 2 } + fadeIn()) togetherWith
+                                    (slideOutVertically { -it / 2 } + fadeOut())
+                            },
+                            label = "profile_status_${profile.id}"
+                        ) { state ->
+                            when {
+                                state.startsWith("typing:") -> TypingIndicator(
+                                    typingUsers = typingUsers
+                                )
+                                state == "online" -> Text(
+                                    text = statusText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                else -> Text(
+                                    text = statusText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                         Spacer(modifier = Modifier.height(36.dp))
 

@@ -17,6 +17,7 @@ fun SettingsTab() {
             onAppearance = { nav.navigate(SettingsRoutes.Appearance) },
             onNotifications = { nav.navigate(SettingsRoutes.Notifications) },
             onDevices = { nav.navigate(SettingsRoutes.Devices) },
+            onSwitchServer = { nav.navigate("serverConfig") },
             onAccount = { nav.navigate(SettingsRoutes.Account) },
             onAbout = { nav.navigate("about") },
             title = stringResource(Res.string.settings),

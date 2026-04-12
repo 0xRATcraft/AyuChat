@@ -50,6 +50,8 @@ private object DebugScreenText {
     const val OpenProfileDesc = "Your profile with chat and link actions"
     const val OpenDmUser2 = "DM (user 2)"
     const val OpenDmUser2Desc = "Open a direct message with user ID 2"
+    const val SearchBarDocs = "SearchBar docs"
+    const val SearchBarDocsDesc = "Official Material3 SearchBar snippet in an isolated screen"
     const val BugIconCd = "Debug"
     const val StatusPlaceholder = "Status will appear here"
     const val UnknownError = "Something went wrong. Please try again."
@@ -172,6 +174,24 @@ fun DebugApiScreenContent() {
             )
             Button(
                 onClick = { navController.navigate(DmNav.chatRoute(2)) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(text = DebugScreenText.OpenAction)
+            }
+
+            Text(
+                text = DebugScreenText.SearchBarDocs,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text(
+                text = DebugScreenText.SearchBarDocsDesc,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Button(
+                onClick = { navController.navigate("debug/searchbar-docs") },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(text = DebugScreenText.OpenAction)

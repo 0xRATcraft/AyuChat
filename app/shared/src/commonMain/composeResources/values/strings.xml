@@ -43,6 +43,10 @@
     <string name="contacts_empty_body">Your contacts will appear here when this feature is ready.</string>
     <string name="public_chat">Main chat</string>
     <string name="chat_last_mesaage">You: last message</string>
+    <string name="search_hint">Search by name, username or chat</string>
+    <string name="search_title">Search</string>
+    <string name="search_not_found">No results</string>
+    <string name="search_not_found_message">Nothing found here. Try rephrasing your query.</string>
     <string name="message_placeholder">Write a message…</string>
 
     <!-- Connection / chat chrome -->

@@ -31,19 +31,24 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import ru.fromchat.api.ApiClient
+import ru.fromchat.api.UserStatusStore
 import ru.fromchat.api.ProfileCache
 import ru.fromchat.api.UpdateSyncManager
 import ru.fromchat.api.WebSocketManager
+import ru.fromchat.api.WebSocketMessage
+import ru.fromchat.api.WebSocketUpdatesData
 import ru.fromchat.net.NetworkConnectivity
 import ru.fromchat.core.config.Config
 import ru.fromchat.ui.auth.LoginScreen
 import ru.fromchat.ui.auth.RegisterScreen
 import ru.fromchat.ui.chat.PublicChatScreen
 import ru.fromchat.ui.debug.DebugApiScreen
+import ru.fromchat.ui.debug.DebugSearchBarDocsScreen
 import ru.fromchat.ui.dm.DmChatRoute
 import ru.fromchat.ui.dm.DmNav
 import ru.fromchat.ui.dm.DmProfileRoute
 import ru.fromchat.ui.main.MainScreen
+import ru.fromchat.ui.main.ChatsSearchScreen
 import ru.fromchat.ui.profile.ProfileScreen
 import ru.fromchat.ui.setup.ServerConfigScreen
 import ru.fromchat.ui.LocalSystemBarsVisibility
@@ -62,8 +67,37 @@ import ru.fromchat.ui.main.settings.SettingsRoutes
 import ru.fromchat.ui.main.settings.SettingsSecurityHubScreen
 import ru.fromchat.ui.main.settings.SettingsSecurityPasswordFlowScreen
 import ru.fromchat.ui.main.settings.SettingsServerToolsScreen
+import kotlinx.serialization.json.*
 
 val LocalNavController = compositionLocalOf<NavController> { error("NavController not provided") }
+
+private fun handlePresenceStatus(data: JsonObject?) {
+    val userId = data?.get("userId")?.jsonPrimitive?.content?.toIntOrNull() ?: return
+    val online = data["online"]?.jsonPrimitive?.booleanOrNull == true
+    val lastSeen = data["lastSeen"]?.jsonPrimitive?.content
+    UserStatusStore.update(userId, online, lastSeen)
+}
+
+private fun handlePresenceTyping(type: String, data: JsonObject?) {
+    val userId = data?.get("userId")?.jsonPrimitive?.content?.toIntOrNull() ?: return
+    val username = data["username"]?.jsonPrimitive?.contentOrNull ?: return
+    when (type) {
+        "dmTyping" -> UserStatusStore.addTyping(userId, username)
+        "stopDmTyping" -> UserStatusStore.removeTyping(userId, username)
+    }
+}
+
+private fun handlePresenceEvent(message: WebSocketMessage) {
+    when (message.type) {
+        "statusUpdate" -> message.data?.jsonObject?.let(::handlePresenceStatus)
+        "dmTyping", "stopDmTyping" -> message.data?.jsonObject?.let { handlePresenceTyping(message.type, it) }
+        "updates" -> {
+            val data = message.data ?: return
+            val updates = ApiClient.json.decodeFromJsonElement<WebSocketUpdatesData>(data)
+            updates.updates.forEach(::handlePresenceEvent)
+        }
+    }
+}
 
 private fun NavGraphBuilder.settingsSlideComposable(
     route: String,
@@ -154,6 +188,16 @@ fun App(
 
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        val handler: (WebSocketMessage) -> Unit = { message ->
+            runCatching { handlePresenceEvent(message) }
+        }
+        WebSocketManager.addGlobalMessageHandler(handler)
+        onDispose {
+            WebSocketManager.removeGlobalMessageHandler(handler)
         }
     }
 
@@ -254,7 +298,10 @@ fun App(
                     }
 
                     composable("chat") {
-                        MainScreen()
+                        MainScreen(
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this
+                        )
                     }
 
                     composable("chats/publicChat") {
@@ -265,8 +312,36 @@ fun App(
                         )
                     }
 
+                    val searchScreenFade = tween<Float>(260)
+                    composable(
+                        route = "search/conversations",
+                        enterTransition = { fadeIn(animationSpec = searchScreenFade) },
+                        exitTransition = { fadeOut(animationSpec = searchScreenFade) },
+                        popEnterTransition = { fadeIn(animationSpec = searchScreenFade) },
+                        popExitTransition = { fadeOut(animationSpec = searchScreenFade) }
+                    ) {
+                        ChatsSearchScreen(
+                            onBack = { navController.popBackStack() },
+                            sharedTransitionScope = this@SharedTransitionLayout,
+                            animatedVisibilityScope = this,
+                            onOpenProfile = { userId: Int ->
+                                if (userId != 0) {
+                                    navController.navigate("profile/$userId")
+                                }
+                            },
+                            onOpenConversation = { userId: Int ->
+                                if (userId != 0) {
+                                    navController.navigate(DmNav.chatRoute(userId))
+                                }
+                            }
+                        )
+                    }
+
                     composable("debug") {
                         DebugApiScreen()
+                    }
+                    composable("debug/searchbar-docs") {
+                        DebugSearchBarDocsScreen()
                     }
 
                     composable(

@@ -240,6 +240,7 @@ fun SettingsHubScreen(
     onAppearance: () -> Unit,
     onNotifications: () -> Unit,
     onDevices: () -> Unit,
+    onSwitchServer: () -> Unit,
     onAccount: () -> Unit,
     onAbout: () -> Unit,
     title: String,
@@ -323,6 +324,23 @@ fun SettingsHubScreen(
                     supportingText = stringResource(Res.string.settings_category_notifications_d),
                     onClick = onNotifications,
                     leadingContent = { SettingsListLeadingIcon(Icons.Filled.Notifications) },
+                    divider = true,
+                    dividerColor = settingsSurfaceCutDividerColor(),
+                    dividerThickness = SettingsSurfaceCutDividerThickness,
+                    trailingContent = {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                )
+                ListItem(
+                    headline = stringResource(Res.string.change_server),
+                    supportingText = stringResource(Res.string.change_server_d),
+                    onClick = onSwitchServer,
+                    leadingContent = { SettingsListLeadingIcon(Icons.Filled.Storage) },
                     divider = true,
                     dividerColor = settingsSurfaceCutDividerColor(),
                     dividerThickness = SettingsSurfaceCutDividerThickness,

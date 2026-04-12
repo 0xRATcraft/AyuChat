@@ -7,7 +7,8 @@ import kotlinx.coroutines.flow.update
 
 data class UserStatus(
     val online: Boolean,
-    val lastSeen: String? = null
+    val lastSeen: String? = null,
+    val typingUsernames: List<String> = emptyList()
 )
 
 object UserStatusStore {
@@ -15,6 +16,29 @@ object UserStatusStore {
     val status: StateFlow<Map<Int, UserStatus>> = _status.asStateFlow()
 
     fun update(userId: Int, online: Boolean, lastSeen: String?) {
-        _status.update { it + (userId to UserStatus(online, lastSeen)) }
+        _status.update { current ->
+            val existing = current[userId] ?: UserStatus(online = false)
+            current + (userId to existing.copy(online = online, lastSeen = lastSeen ?: existing.lastSeen))
+        }
+    }
+
+    fun addTyping(userId: Int, username: String) {
+        val trimmed = username.trim().takeIf { it.isNotBlank() } ?: return
+        _status.update { current ->
+            val existing = current[userId] ?: UserStatus(online = false)
+            val typing = (existing.typingUsernames + trimmed)
+                .filter { it.isNotBlank() }
+                .distinct()
+            if (typing == existing.typingUsernames) current else current + (userId to existing.copy(typingUsernames = typing))
+        }
+    }
+
+    fun removeTyping(userId: Int, username: String) {
+        val trimmed = username.trim().takeIf { it.isNotBlank() } ?: return
+        _status.update { current ->
+            val existing = current[userId] ?: return@update current
+            val typing = existing.typingUsernames.filterNot { it.equals(trimmed, ignoreCase = true) }
+            current + (userId to existing.copy(typingUsernames = typing))
+        }
     }
 }

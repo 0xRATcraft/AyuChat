@@ -34,6 +34,10 @@
     <string name="contacts_empty_body">Список контактов появится здесь, когда функция будет готова.</string>
     <string name="public_chat">Общий чат</string>
     <string name="chat_last_mesaage">Вы: последнее сообщение</string>
+    <string name="search_hint">Найдите пользователя, имя или чат</string>
+    <string name="search_title">Поиск</string>
+    <string name="search_not_found">Ничего не найдено</string>
+    <string name="search_not_found_message">Ничего не найдено. Попробуйте переформулировать запрос.</string>
     <string name="message_placeholder">Напишите сообщение…</string>
     <string name="status_connecting">Соединение</string>
     <string name="status_updating">Обновление</string>

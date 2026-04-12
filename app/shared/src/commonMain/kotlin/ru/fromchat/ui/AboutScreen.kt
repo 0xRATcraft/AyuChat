@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +45,8 @@ import ru.fromchat.about_link_website
 import ru.fromchat.about_version
 import ru.fromchat.app_desc
 import ru.fromchat.app_name
+import ru.fromchat.debug_tools
+import ru.fromchat.debug_tools_d
 import ru.fromchat.back
 import ru.fromchat.ui.branding.FromChatBrandTitle
 
@@ -166,6 +169,19 @@ fun AboutScreen() {
                     leadingContent = {
                         Icon(
                             imageVector = Icons.Outlined.Website,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                )
+                ListItem(
+                    headline = stringResource(Res.string.debug_tools),
+                    supportingText = stringResource(Res.string.debug_tools_d),
+                    onClick = { navController.navigate("debug") },
+                    leadingContent = {
+                        Icon(
+                            imageVector = Icons.Outlined.BugReport,
                             contentDescription = null,
                             modifier = Modifier.size(24.dp),
                             tint = MaterialTheme.colorScheme.onSurface,
