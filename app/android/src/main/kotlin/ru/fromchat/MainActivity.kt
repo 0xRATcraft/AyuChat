@@ -1,6 +1,7 @@
 package ru.fromchat
 import android.Manifest
 import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
@@ -12,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.Lifecycle
 import com.google.android.gms.common.ConnectionResult
 import com.google.android.gms.common.GoogleApiAvailability
 import io.ktor.client.call.body
@@ -20,12 +22,15 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
 import io.ktor.http.contentType
+import io.ktor.client.plugins.ClientRequestException
 import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import androidx.lifecycle.lifecycleScope
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.MessagesResponse
 import ru.fromchat.core.config.Config
+import ru.fromchat.core.Logger
 import ru.fromchat.ui.App
 import ru.fromchat.ui.isPublicChatVisible
 
@@ -35,29 +40,149 @@ private const val EXTRA_MARK_MESSAGE_READ = "mark_message_read"
 private const val EXTRA_MESSAGE_ID = "scroll_to_message_id"
 private const val CHAT_TYPE_PUBLIC = "public"
 private const val CHAT_TYPE_DM = "dm"
+private const val INVALID_PROFILE_DEEP_LINK_MESSAGE = "Could not open this profile link. Use fromchat://u/<idOrUsername>."
+private const val PROFILE_NOT_FOUND_MESSAGE = "This profile could not be found"
+private const val PROFILE_OPEN_FAILED_MESSAGE = "Could not open this profile. Please try again."
+
+private data class ProfileDeepLinkResolution(
+    val scrollToMessageId: Int? = null,
+    val startAtPublicChat: Boolean = false,
+    val startAtDmConversationUserId: Int? = null,
+    val startAtProfileUserId: Int? = null,
+    val startAtProfileUsername: String? = null,
+    val profileLookupErrorMessage: String? = null
+)
+
+private fun getProfileLookupFailureMessage(error: Throwable): String =
+    if (error is ClientRequestException && error.response.status.value == 404) {
+        PROFILE_NOT_FOUND_MESSAGE
+    } else {
+        PROFILE_OPEN_FAILED_MESSAGE
+    }
+
+private data class ProfileDeepLinkTarget(
+    val userId: Int? = null,
+    val username: String? = null,
+    val parseError: String? = null
+)
 
 class MainActivity : ComponentActivity() {
     private var scrollToMessageId by mutableStateOf<Int?>(null)
     private var startAtPublicChat by mutableStateOf(false)
     private var startAtDmConversationUserId by mutableStateOf<Int?>(null)
+    private var startAtProfileUserId by mutableStateOf<Int?>(null)
+    private var startAtProfileUsername by mutableStateOf<String?>(null)
+    private var profileLookupErrorMessage by mutableStateOf<String?>(null)
     private var prevIsPublicChatVisible: Boolean? = null
+    private val requestNotificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {}
 
-    private fun handleIntent(intent: Intent?) {
+    private suspend fun buildLaunchState(intent: Intent?): ProfileDeepLinkResolution {
+        Logger.d(
+            "ProfileDeepLink",
+            "handleIntent: action=${intent?.action}, data=${intent?.dataString}, messageId=${intent?.getIntExtra(EXTRA_MESSAGE_ID, -1)}, " +
+                "chatType=${intent?.getStringExtra(EXTRA_NOTIFICATION_CHAT_TYPE)}, openDmUserId=${intent?.getIntExtra(EXTRA_OPEN_DM_USER_ID, -1)}"
+        )
         val messageId = intent?.getIntExtra(EXTRA_MESSAGE_ID, -1) ?: -1
         val chatType = intent?.getStringExtra(EXTRA_NOTIFICATION_CHAT_TYPE) ?: CHAT_TYPE_PUBLIC
         val dmConversationUserId = intent?.getIntExtra(EXTRA_OPEN_DM_USER_ID, -1) ?: -1
+        val profileTarget = parseProfileDeepLink(intent)
+        Logger.d(
+            "ProfileDeepLink",
+            "handleIntent parsedProfileTarget: userId=${profileTarget?.userId}, username=${profileTarget?.username}, parseError=${profileTarget?.parseError}"
+        )
 
-        scrollToMessageId = if (messageId != -1) messageId else null
-        startAtPublicChat = messageId != -1 && chatType != CHAT_TYPE_DM
-        startAtDmConversationUserId = if (chatType == CHAT_TYPE_DM && dmConversationUserId > 0) {
-            dmConversationUserId
+        val baseState = ProfileDeepLinkResolution(
+            scrollToMessageId = if (messageId != -1) messageId else null,
+            startAtPublicChat = messageId != -1 && chatType != CHAT_TYPE_DM,
+            startAtDmConversationUserId = if (chatType == CHAT_TYPE_DM && dmConversationUserId > 0) {
+                dmConversationUserId
+            } else {
+                null
+            }
+        )
+
+        if (profileTarget?.parseError != null) {
+            return baseState.copy(profileLookupErrorMessage = profileTarget.parseError)
+        }
+
+        if (profileTarget == null) {
+            return baseState
+        }
+
+        var lookupFailureMessage: String? = null
+        val resolvedProfileId = if (profileTarget.userId != null) {
+            runCatching {
+                ApiClient.getProfileById(profileTarget.userId).id
+            }.onFailure { err ->
+                Logger.d("ProfileDeepLink", "profile deep link lookup failed by id: ${err.message}")
+                lookupFailureMessage = getProfileLookupFailureMessage(err)
+            }.getOrNull()
+        } else if (!profileTarget.username.isNullOrBlank()) {
+            runCatching {
+                ApiClient.getProfileByUsername(profileTarget.username).id
+            }.onFailure { err ->
+                Logger.d("ProfileDeepLink", "profile deep link lookup failed by username: ${err.message}")
+                lookupFailureMessage = getProfileLookupFailureMessage(err)
+            }.getOrNull()
         } else {
             null
         }
 
-        // Mark messages as read if clicked from notification
+        if (resolvedProfileId == null) {
+            return baseState.copy(profileLookupErrorMessage = lookupFailureMessage ?: PROFILE_OPEN_FAILED_MESSAGE)
+        }
+
         if (intent?.getBooleanExtra(EXTRA_MARK_MESSAGE_READ, false) == true) {
             markMessagesAsRead()
+        }
+
+        return baseState.copy(
+            startAtProfileUserId = resolvedProfileId,
+            startAtProfileUsername = null,
+            startAtDmConversationUserId = null,
+            startAtPublicChat = false
+        )
+    }
+
+    private fun applyLaunchState(launchState: ProfileDeepLinkResolution) {
+        scrollToMessageId = launchState.scrollToMessageId
+        startAtPublicChat = launchState.startAtPublicChat
+        startAtDmConversationUserId = launchState.startAtDmConversationUserId
+        startAtProfileUserId = launchState.startAtProfileUserId
+        startAtProfileUsername = launchState.startAtProfileUsername
+        profileLookupErrorMessage = launchState.profileLookupErrorMessage
+    }
+
+    private fun parseProfileDeepLink(intent: Intent?): ProfileDeepLinkTarget? {
+        val data: Uri = intent?.data ?: return null
+        Logger.d("ProfileDeepLink", "parseProfileDeepLink intentData=${data.toString()}")
+        if (!data.scheme.equals("fromchat", ignoreCase = true)) return null
+        if (data.host != "u") return null
+
+        val segments = data.pathSegments.filter { it.isNotBlank() }
+        Logger.d("ProfileDeepLink", "parseProfileDeepLink segments=${segments.joinToString(",")}")
+        if (segments.size != 1) {
+            return ProfileDeepLinkTarget(parseError = INVALID_PROFILE_DEEP_LINK_MESSAGE)
+        }
+        val segment = segments[0].let { Uri.decode(it) }
+        val trimmed = segment.trim()
+        if (trimmed.isBlank()) {
+            return ProfileDeepLinkTarget(parseError = INVALID_PROFILE_DEEP_LINK_MESSAGE)
+        }
+
+        return trimmed.toLongOrNull()?.let { idLong ->
+            if (idLong in 1L..Int.MAX_VALUE.toLong()) {
+                Logger.d("ProfileDeepLink", "parseProfileDeepLink resolved as userId=$idLong")
+                ProfileDeepLinkTarget(userId = idLong.toInt())
+            } else {
+                Logger.d("ProfileDeepLink", "parseProfileDeepLink large numeric treated as username=$trimmed")
+                ProfileDeepLinkTarget(username = trimmed)
+            }
+        } ?: run {
+            Logger.d("ProfileDeepLink", "parseProfileDeepLink resolved as username=$trimmed")
+            ProfileDeepLinkTarget(username = trimmed)
         }
     }
 
@@ -110,30 +235,38 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         enableEdgeToEdge()
 
-        // Handle initial intent
-        handleIntent(intent)
+        lifecycleScope.launch {
+            val launchState = buildLaunchState(intent)
+            applyLaunchState(launchState)
+            setContent {
+                App(
+                    scrollToMessageId = scrollToMessageId,
+                    startAtPublicChat = startAtPublicChat,
+                    startAtDmConversationUserId = startAtDmConversationUserId,
+                    startAtProfileUserId = startAtProfileUserId,
+                    startAtProfileUsername = startAtProfileUsername,
+                    profileLookupErrorMessage = profileLookupErrorMessage,
+                    onProfileLookupErrorMessageConsumed = {
+                        profileLookupErrorMessage = null
+                    }
+                )
+            }
 
-        setContent {
-            App(
-                scrollToMessageId = scrollToMessageId,
-                startAtPublicChat = startAtPublicChat,
-                startAtDmConversationUserId = startAtDmConversationUserId
-            )
+            checkGooglePlayServices()
         }
 
         // Request POST_NOTIFICATIONS permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerForActivityResult(
-                ActivityResultContracts.RequestPermission()
-            ) {}.launch(Manifest.permission.POST_NOTIFICATIONS)
+            requestNotificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
-
-        checkGooglePlayServices()
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        handleIntent(intent)
+        lifecycleScope.launch {
+            val launchState = buildLaunchState(intent)
+            applyLaunchState(launchState)
+        }
     }
 
     override fun onPause() {

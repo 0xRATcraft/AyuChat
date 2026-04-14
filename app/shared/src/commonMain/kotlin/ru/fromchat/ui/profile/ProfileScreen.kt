@@ -69,9 +69,11 @@ import com.pr0gramm3r101.components.ListItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.ktor.client.plugins.ClientRequestException
 import org.jetbrains.compose.resources.stringResource
 import ru.fromchat.Res
 import ru.fromchat.*
+import ru.fromchat.core.Logger
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.ProfileCache
 import ru.fromchat.api.UserProfile
@@ -114,6 +116,7 @@ private val profileActionCardPressSpring = spring<Float>(
 @Composable
 fun ProfileScreen(
     userId: Int?,
+    username: String? = null,
     onBack: () -> Unit,
     onChat: (Int) -> Unit,
     hideAvatar: Boolean = false,
@@ -126,6 +129,7 @@ fun ProfileScreen(
     useSharedElementFromNavigation: Boolean = false,
     sharedSourceMessageId: Int = -1,
     initialDisplayName: String? = null,
+    showErrorAsToast: Boolean = false,
     onOpenSettings: () -> Unit = {}
 ) {
     val clipboardManager: ClipboardManager = LocalClipboardManager.current
@@ -134,6 +138,7 @@ fun ProfileScreen(
     val profileTitle = stringResource(Res.string.profile_title)
     val cdBack = stringResource(Res.string.back)
     val profileLoadFailed = stringResource(Res.string.profile_load_failed)
+    val profileNotFound = stringResource(Res.string.profile_not_found)
     val labelSettings = stringResource(Res.string.action_open_settings)
     val labelChat = stringResource(Res.string.action_chat)
     val labelLink = stringResource(Res.string.action_copy_link)
@@ -147,11 +152,27 @@ fun ProfileScreen(
     val verifyPromptSupport = stringResource(Res.string.profile_verify_prompt_support)
     val hideBackButton = navController.currentDestination?.route == "chat"
     val targetUserId = userId.takeIf { it != null && it > 0 }
+    val targetUsername = username?.trim()?.takeIf { it.isNotBlank() }
     val ownUserId = ApiClient.user?.id?.takeIf { it > 0 }
-    val cacheLookupId = targetUserId ?: ownUserId
+    val cacheLookupId = when {
+        targetUserId != null -> targetUserId
+        targetUsername != null -> null
+        else -> ownUserId
+    }
+    val isTargetProfileLookup = targetUserId != null || targetUsername != null
+    val lookupMode = if (targetUserId != null) "id" else if (targetUsername != null) "username" else "own"
+    val lookupIdentifier = when {
+        targetUserId != null -> targetUserId.toString()
+        !targetUsername.isNullOrBlank() -> targetUsername
+        else -> "self"
+    }
 
-    var state by remember(targetUserId, ownUserId) {
+    var state by remember(targetUserId, targetUsername, ownUserId) {
         val cached = cacheLookupId?.let { ProfileCache.get(it) }
+        Logger.d(
+            "ProfileScreen",
+            "state init: cacheLookupId=$cacheLookupId cachedId=${cached?.id} cachedUsername=${cached?.username} cachedDisplay=${cached?.displayName}"
+        )
         mutableStateOf(
             ProfileUiState(
                 profile = cached,
@@ -164,17 +185,25 @@ fun ProfileScreen(
     val latestUi by rememberUpdatedState(state)
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    LaunchedEffect(cacheLookupId, targetUserId, lifecycleOwner) {
+    LaunchedEffect(cacheLookupId, targetUserId, targetUsername, lifecycleOwner) {
+        Logger.d(
+            "ProfileScreen",
+            "load start: mode=$lookupMode identifier=$lookupIdentifier cacheLookupId=$cacheLookupId ownUserId=$ownUserId " +
+                "lifecycleStarted=${lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)}"
+        )
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.STARTED) {
             runCatching {
-                if (targetUserId == null) {
+                if (targetUserId == null && targetUsername == null) {
                     ApiClient.getOwnProfile()
+                } else if (targetUsername != null) {
+                    ApiClient.getProfileByUsername(targetUsername)
                 } else {
-                    ApiClient.getProfileById(targetUserId)
+                    ApiClient.getProfileById(targetUserId!!)
                 }
             }.onSuccess { profile ->
                 if (profile.username.isBlank() && profile.displayName.isNullOrBlank()) {
                     cacheLookupId?.let { ProfileCache.evictUnusableClientPreview(it) }
+                    Logger.d("ProfileScreen", "load success but blank identity for id=${profile.id}, dropping as unusable preview")
                     state = latestUi.copy(
                         profile = null,
                         isLoading = false,
@@ -182,16 +211,52 @@ fun ProfileScreen(
                     )
                     return@onSuccess
                 }
+                Logger.d(
+                    "ProfileScreen",
+                    "load success: mode=$lookupMode identifier=$lookupIdentifier -> id=${profile.id}, username='${profile.username}', display='${profile.displayName}', deleted=${profile.deleted}, suspended=${profile.suspended}"
+                )
                 ProfileCache.put(profile)
                 state = latestUi.copy(profile = profile, isLoading = false, error = null)
             }.onFailure { err ->
-                val fallbackId = targetUserId ?: ownUserId
+                val fallbackId = if (targetUsername != null) null else targetUserId ?: ownUserId
                 fallbackId?.let { ProfileCache.evictUnusableClientPreview(it) }
                 val fallback = fallbackId?.let { ProfileCache.get(it) }
+                Logger.d(
+                    "ProfileScreen",
+                    "load failure fallback lookup: fallbackId=$fallbackId fallbackFound=${fallback != null}"
+                )
+                val resolvedErrorMessage = when {
+                    err is ClientRequestException && err.response.status.value == 404 -> profileNotFound
+                    else -> err.message?.takeIf { it.isNotBlank() } ?: profileLoadFailed
+                }
+                if (err is ClientRequestException) {
+                    Logger.d(
+                        "ProfileScreen",
+                        "load failed: mode=$lookupMode identifier=$lookupIdentifier " +
+                            "status=${err.response.status.value} fallbackId=$fallbackId error=${err.message}"
+                    )
+                } else {
+                    Logger.d(
+                        "ProfileScreen",
+                        "load failed: mode=$lookupMode identifier=$lookupIdentifier " +
+                            "errorType=${err::class.simpleName} message=${err.message}"
+                    )
+                }
+                if (
+                    showErrorAsToast &&
+                    isTargetProfileLookup &&
+                    latestUi.profile == null &&
+                    fallback == null
+                ) {
+                    showProfileLoadErrorMessage(resolvedErrorMessage)
+                }
                 state = latestUi.copy(
                     error = if (latestUi.profile == null && fallback == null) {
-                        err.message?.takeIf { it.isNotBlank() }?.let { ProfileLoadError.Message(it) }
-                            ?: ProfileLoadError.Generic
+                        if (resolvedErrorMessage == profileLoadFailed) {
+                            ProfileLoadError.Generic
+                        } else {
+                            ProfileLoadError.Message(resolvedErrorMessage)
+                        }
                     } else {
                         null
                     },

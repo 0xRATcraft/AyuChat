@@ -22,8 +22,11 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import org.jetbrains.compose.resources.stringResource
@@ -47,7 +50,9 @@ private const val PAGE_COUNT = 4
 fun MainScreen(
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
+    snackbarHostState: SnackbarHostState? = null
 ) {
+    val effectiveSnackbarHostState = snackbarHostState ?: remember { SnackbarHostState() }
     val navController = LocalNavController.current
     val pagerState = rememberPagerState(
         initialPage = PAGE_CHATS,
@@ -60,6 +65,7 @@ fun MainScreen(
     val isChatsPage = selectedPage == PAGE_CHATS
 
     Scaffold(
+        snackbarHost = { SnackbarHost(hostState = effectiveSnackbarHostState) },
         bottomBar = {
             NavigationBar {
                 NavigationBarItem(

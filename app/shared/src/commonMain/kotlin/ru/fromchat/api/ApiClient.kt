@@ -307,6 +307,13 @@ object ApiClient {
             }
             .body()
 
+    suspend fun getProfileByUsername(username: String): UserProfile =
+        http
+            .get("${Config.apiBaseUrl}/user/$username") {
+                contentType(ContentType.Application.Json)
+            }
+            .body()
+
     suspend fun getRegisteredUserCount(): Int =
         http
             .get("${Config.apiBaseUrl}/user/stats/registered-count") {

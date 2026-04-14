@@ -50,6 +50,7 @@ kotlin {
             implementation(libs.haze)
             implementation(libs.haze.materials)
             implementation(libs.androidx.core.ktx)
+            implementation(libs.androidx.lifecycle.runtime.compose)
 
             // Serialization
             implementation(libs.kotlinx.serialization.json)
