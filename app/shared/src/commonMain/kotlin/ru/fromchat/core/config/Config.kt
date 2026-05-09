@@ -39,6 +39,21 @@ object Config {
     val callsEnabled: Boolean
         get() = config.callsEnabled
 
+    /** Calls port used for LiveKit WS / reachability (defaults to [ru.fromchat.core.DEFAULT_CALLS_PORT]). */
+    val callsPort: Int
+        get() = config.callsPort
+
+    /**
+     * LiveKit WS endpoint derived from the active server config:
+     * - host = [ServerConfigData.serverIp]
+     * - port = [ServerConfigData.callsPort]
+     * - scheme = ws or wss based on [ServerConfigData.httpsEnabled]
+     */
+    fun liveKitWsUrl(): String {
+        val scheme = if (config.httpsEnabled) "wss" else "ws"
+        return "$scheme://${config.serverIp}:${config.callsPort}"
+    }
+
     /**
      * LiveKit signaling WebSocket URL: same host and API port as HTTPS reverse proxy (`/api/livekit/rtc`).
      * WebRTC media uses the configured calls port on the server (e.g. HAProxy in front of LiveKit).

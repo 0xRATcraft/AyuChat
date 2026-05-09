@@ -8,6 +8,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.PowerManager
@@ -72,6 +73,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.key
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -315,12 +317,80 @@ actual fun CallMediaLayer(
             }
         }
         connect != null && permissionsGranted -> {
+            val statusConnecting = stringResource(Res.string.call_status_connecting)
+            val statusReconnecting = stringResource(Res.string.call_status_reconnecting)
+            val statusReconnectingWithDetailTemplate =
+                stringResource(Res.string.call_status_reconnecting_with_detail)
+            var connectionStatusText by remember(connect.roomName) {
+                mutableStateOf<String?>(statusConnecting)
+            }
+            var reconnectNonce by remember(connect.roomName) { mutableStateOf(0) }
+            var reconnectAttempt by remember(connect.roomName) { mutableStateOf(0) }
+            var reconnectGeneration by remember(connect.roomName) { mutableStateOf(0) }
+            val reconnectScope = rememberCoroutineScope()
+            val safe = WindowInsets.safeDrawing.asPaddingValues()
+            val bannerTop = safe.calculateTopPadding() + 12.dp
+
+            // Start/stop the foreground call service once per call.
+            // Reconnect logic re-mounts RoomScope, so putting this here avoids repeated
+            // startForegroundService() races / crashes.
+            val ongoingChannelName = stringResource(Res.string.notif_call_channel_name)
+            val ongoingTitle = stringResource(Res.string.notif_call_ongoing_title)
+            val ongoingText = stringResource(Res.string.notif_call_ongoing_text)
+            val callStartWallMs = remember(connect.roomName) { System.currentTimeMillis() }
+            DisposableEffect(
+                ongoingChannelName,
+                connect.peerDisplayName,
+                ongoingTitle,
+                ongoingText,
+                callStartWallMs,
+            ) {
+                CallForegroundService.start(
+                    context.applicationContext,
+                    ongoingChannelName,
+                    connect.peerDisplayName,
+                    ongoingTitle,
+                    ongoingText,
+                    callStartWallMs,
+                )
+                onDispose {
+                    CallForegroundService.stop(context.applicationContext)
+                }
+            }
+
+            fun simplifyLiveKitErrorDetail(raw: String?): String? {
+                val t = raw?.trim().orEmpty()
+                if (t.isBlank()) return null
+                val m = Regex("\"detail\"\\s*:\\s*\"([^\"]+)\"").find(t)
+                return m?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() } ?: t
+            }
+
+            fun scheduleReconnect(detail: String?) {
+                reconnectAttempt += 1
+                val attempt = reconnectAttempt
+                val simplified = simplifyLiveKitErrorDetail(detail)
+                connectionStatusText =
+                    simplified?.let {
+                        java.lang.String.format(statusReconnectingWithDetailTemplate, it)
+                    } ?: statusReconnecting
+
+                val nextGen = reconnectGeneration + 1
+                reconnectGeneration = nextGen
+                reconnectScope.launch {
+                    val delayMs = (attempt * 1000L).coerceAtMost(30_000L)
+                    delay(delayMs)
+                    if (reconnectGeneration != nextGen) return@launch
+                    reconnectNonce += 1
+                }
+            }
+
             Logger.d(
                 TAG,
                 "RoomScope starting url=${connect.serverUrl} room=${connect.roomName} " +
                     "(mic UI sync waits for CONNECTED; DISCONNECTED means join failed or network)",
             )
-            RoomScope(
+            key(reconnectNonce) {
+                RoomScope(
                 url = connect.serverUrl,
                 token = connect.token,
                 roomOptions = RoomOptions(
@@ -328,9 +398,16 @@ actual fun CallMediaLayer(
                         typingNoiseDetection = false,
                     ),
                 ),
-                audio = micRequestedOn,
+                // Subscribe/play remote audio even when the local mic is muted.
+                audio = true,
                 video = false,
                 onError = { r, e ->
+                    val msg = e?.message?.takeIf { it.isNotBlank() } ?: e?.toString().orEmpty()
+                    val simplified = simplifyLiveKitErrorDetail(msg)
+                    connectionStatusText =
+                        simplified?.let {
+                            java.lang.String.format(statusReconnectingWithDetailTemplate, it)
+                        } ?: statusReconnecting
                     Logger.e(
                         TAG,
                         "RoomScope onError state=${r.state} msg=${e?.message}",
@@ -341,6 +418,10 @@ actual fun CallMediaLayer(
                     Logger.w(TAG, "RoomScope onDisconnected state=${r.state}")
                 },
                 onConnected = { room ->
+                    connectionStatusText = null
+                    reconnectAttempt = 0
+                    reconnectGeneration += 1 // invalidate any pending reconnect
+
                     Logger.d(
                         TAG,
                         "RoomScope onConnected state=${room.state} micReq=$micRequestedOn " +
@@ -356,37 +437,84 @@ actual fun CallMediaLayer(
                         "RoomScope onConnected after camera off: micEn=${room.localParticipant.isMicrophoneEnabled}",
                     )
                 },
-            ) { room ->
+                ) { room ->
                 LaunchedEffect(room) {
                     room.events.collect { event: RoomEvent ->
                         when (event) {
-                            is RoomEvent.Connected ->
+                            is RoomEvent.Connected -> {
+                                connectionStatusText = null
+                                reconnectAttempt = 0
+                                reconnectGeneration += 1 // invalidate any pending reconnect
                                 Logger.d(TAG, "RoomEvent.Connected")
-                            is RoomEvent.Disconnected ->
+                            }
+                            is RoomEvent.Disconnected -> {
+                                val detail = event.error?.message ?: event.reason.toString()
                                 Logger.w(
                                     TAG,
-                                    "RoomEvent.Disconnected reason=${event.reason} " +
-                                        "err=${event.error?.message}",
+                                    "RoomEvent.Disconnected reason=${event.reason} err=${event.error?.message}",
                                     event.error,
                                 )
-                            is RoomEvent.FailedToConnect ->
+                                scheduleReconnect(detail)
+                            }
+                            is RoomEvent.FailedToConnect -> {
+                                val msg =
+                                    event.error?.message
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?: event.error?.toString()
+                                            .orEmpty()
                                 Logger.e(TAG, "RoomEvent.FailedToConnect", event.error)
-                            is RoomEvent.Reconnecting ->
+                                scheduleReconnect(msg.takeIf { it.isNotBlank() })
+                            }
+                            is RoomEvent.Reconnecting -> {
+                                connectionStatusText = statusReconnecting
                                 Logger.d(TAG, "RoomEvent.Reconnecting")
-                            is RoomEvent.Reconnected ->
+                            }
+                            is RoomEvent.Reconnected -> {
+                                connectionStatusText = null
                                 Logger.d(TAG, "RoomEvent.Reconnected")
+                            }
                             else -> {}
                         }
                     }
                 }
-                CallRoomContent(
-                    room = room,
-                    session = connect,
-                    showInCallControls = showInCallControls,
-                    micRequestedOn = micRequestedOn,
-                    onMicRequestedChange = { micRequestedOn = it },
-                    modifier = modifier,
-                )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    CallRoomContent(
+                        room = room,
+                        session = connect,
+                        showInCallControls = showInCallControls,
+                        micRequestedOn = micRequestedOn,
+                        onMicRequestedChange = { micRequestedOn = it },
+                        modifier = modifier,
+                    )
+                    val status = connectionStatusText
+                    if (status != null) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .padding(start = 16.dp, end = 16.dp, top = bannerTop, bottom = 12.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.75f))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(Modifier.size(12.dp))
+                                Text(
+                                    text = status,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                )
+                            }
+                        }
+                    }
+                }
+                }
             }
         }
         connect != null && !permissionsGranted -> {
@@ -420,10 +548,19 @@ private fun CallRoomContent(
     modifier: Modifier,
 ) {
     val context = LocalContext.current
-    val ongoingChannelName = stringResource(Res.string.notif_call_channel_name)
-    val ongoingTitle = stringResource(Res.string.notif_call_ongoing_title)
-    val ongoingText = stringResource(Res.string.notif_call_ongoing_text)
-    val callStartWallMs = remember(session.roomName) { System.currentTimeMillis() }
+
+    DisposableEffect(room) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val previousMode = audioManager.mode
+        runCatching {
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        }
+        onDispose {
+            runCatching {
+                audioManager.mode = previousMode
+            }
+        }
+    }
 
     DisposableEffect(Unit) {
         val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -436,20 +573,6 @@ private fun CallRoomContent(
             runCatching {
                 if (wakeLock.isHeld) wakeLock.release()
             }
-        }
-    }
-
-    DisposableEffect(ongoingChannelName, session.peerDisplayName, ongoingTitle, ongoingText, callStartWallMs) {
-        CallForegroundService.start(
-            context.applicationContext,
-            ongoingChannelName,
-            session.peerDisplayName,
-            ongoingTitle,
-            ongoingText,
-            callStartWallMs,
-        )
-        onDispose {
-            CallForegroundService.stop(context.applicationContext)
         }
     }
 
@@ -511,6 +634,9 @@ private fun CallRoomContent(
         }
     }
 
+    val participants = rememberParticipants(room).value
+    val local = room.localParticipant
+    val remote: Participant? = participants.firstOrNull { it != local }
     val hazeState = rememberHazeState(blurEnabled = showInCallControls)
     Box(
         modifier = modifier
@@ -528,6 +654,8 @@ private fun CallRoomContent(
                 showInCallControls = showInCallControls,
             )
         }
+        // Note: we intentionally do NOT blur the whole scene here.
+    // Only individual remote preview tiles apply haze when needed.
         if (showInCallControls) {
             CallInlineControlBar(
                 room = room,
@@ -1048,6 +1176,9 @@ private fun PreviewTile(
     dragModifier: Modifier = Modifier,
 ) {
     val tileShape = RoundedCornerShape(16.dp)
+    // Only blur the *tile content* when the track isn't available yet.
+    // Do not blur the whole call scene; otherwise the opponent video stays blurred.
+    val hazeState = rememberHazeState(blurEnabled = ref == null || !showVideo)
     Box(
         modifier = Modifier
             .size(104.dp, 138.dp)
@@ -1075,6 +1206,8 @@ private fun PreviewTile(
             Box(
                 Modifier
                     .fillMaxSize()
+                    // Placeholder blur only for missing/disabled track.
+                    .hazeEffect(state = hazeState, style = HazeMaterials.thick())
                     .background(MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.55f)),
             )
         }

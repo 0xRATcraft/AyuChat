@@ -132,7 +132,9 @@ object CallStore {
             runCatching {
                 withContext(Dispatchers.Default) {
                     val tok = ApiClient.fetchLiveKitToken(peerUserId, null)
-                    val signalUrl = Config.liveKitSignalingWsUrl()
+                    // LiveKit WS endpoint is exposed on the same host as the server config,
+                    // using the configured calls port.
+                    val signalUrl = Config.liveKitWsUrl()
                     ApiClient.sendLiveKitInvite(peerUserId, tok.roomName, signalUrl)
                     val label = peerLabel(peerUserId)
                     LiveKitConnectSession(
@@ -173,7 +175,7 @@ object CallStore {
                     val display =
                         if (inc.fromUsername.isNotBlank()) inc.fromUsername else label
                     LiveKitConnectSession(
-                        serverUrl = Config.liveKitSignalingWsUrl(),
+                        serverUrl = Config.liveKitWsUrl(),
                         token = tok.token,
                         peerUserId = inc.fromUserId,
                         peerDisplayName = display,
@@ -229,7 +231,41 @@ object CallStore {
         if (_ui.value is CallUiState.Failed) clearToIdle()
     }
 
+    /**
+     * Called when LiveKit room connection fails (WS join / signaling failure).
+     * Updates UI to [CallUiState.Failed] so the user can see an error dialog.
+     */
+    fun onLiveKitConnectFailed(
+        session: LiveKitConnectSession,
+        rawMessage: String?,
+    ) {
+        scope.launch {
+            val cur = _ui.value
+            if (cur is CallUiState.InCall &&
+                cur.session.roomName == session.roomName &&
+                cur.session.peerUserId == session.peerUserId
+            ) {
+                val simplified =
+                    rawMessage
+                        ?.trim()
+                        ?.takeIf { it.isNotEmpty() }
+                        ?.let { simplifyLiveKitErrorDetail(it) }
+                        ?: "Failed to connect"
+
+                Logger.e(TAG, "LiveKit connect failed: $simplified")
+                _ui.value = CallUiState.Failed(simplified)
+            }
+        }
+    }
+
     private fun clearToIdle() {
         _ui.value = CallUiState.Idle
     }
+}
+
+private fun simplifyLiveKitErrorDetail(raw: String): String {
+    // Server returns JSON like {"detail":"Not Found"}; extract just the detail.
+    val t = raw.trim()
+    val m = Regex("\"detail\"\\s*:\\s*\"([^\"]+)\"").find(t)
+    return m?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() } ?: t
 }

@@ -51,6 +51,8 @@
     <string name="call_status_starting">Запуск вызова…</string>
     <string name="call_status_calling">Вызов…</string>
     <string name="call_status_connecting">Подключение…</string>
+    <string name="call_status_reconnecting">Переподключение…</string>
+    <string name="call_status_reconnecting_with_detail">Переподключение… %1$s</string>
     <string name="call_status_in_call">Разговор</string>
     <string name="call_incoming_subtitle">Входящий звонок</string>
     <string name="call_accept">Принять</string>

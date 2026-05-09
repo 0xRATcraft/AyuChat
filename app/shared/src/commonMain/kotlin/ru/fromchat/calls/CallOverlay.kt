@@ -12,9 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -53,16 +51,33 @@ fun CallOverlay(modifier: Modifier = Modifier) {
         is CallUiState.Connecting,
         -> return
         is CallUiState.Failed -> {
-            AlertDialog(
-                onDismissRequest = { CallStore.dismissFailed() },
-                title = { Text(stringResource(Res.string.call_failed_title)) },
-                text = { Text(s.message) },
-                confirmButton = {
+            Box(
+                modifier = modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.6f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = stringResource(Res.string.call_failed_title),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = s.message,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.height(24.dp))
                     TextButton(onClick = { CallStore.dismissFailed() }) {
                         Text(stringResource(Res.string.call_dismiss))
                     }
-                },
-            )
+                }
+            }
         }
         is CallUiState.Incoming -> {
             val me = ApiClient.user?.id
