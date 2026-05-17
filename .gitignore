@@ -29,3 +29,6 @@ google-services.json
 
 .cursor/plans
 *.log
+
+premortem-transcript-*.md
+premortem-report-*.html
