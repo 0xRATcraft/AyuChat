@@ -16,17 +16,7 @@ data class SavableMessageImage(
     val mimeType: String,
 )
 
-fun mimeTypeForImageFilename(filename: String): String {
-    val ext = filename.substringAfterLast('.').lowercase()
-    return when (ext) {
-        "png" -> "image/png"
-        "gif" -> "image/gif"
-        "webp" -> "image/webp"
-        "heic", "heif" -> "image/heic"
-        "bmp" -> "image/bmp"
-        else -> "image/jpeg"
-    }
-}
+fun mimeTypeForImageFilename(filename: String): String = mimeTypeForFilename(filename)
 
 /** Local decrypted (or staged) image ready to copy to user storage. */
 fun isMessageImageFullyLoaded(message: Message, fileIndex: Int): Boolean {

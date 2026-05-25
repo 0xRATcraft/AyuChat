@@ -403,12 +403,12 @@ fun ChatScreen(
             contextMenuState = contextMenuState.copy(isOpen = false, message = null)
             return@LaunchedEffect
         }
-        val menuAuthor = menuMessage.user_id == currentUserId
         val liveAuthor = liveMessage.user_id == currentUserId
-        val menuFp = messageContextMenuFingerprint(menuMessage, menuAuthor, isReadOnly)
         val liveFp = messageContextMenuFingerprint(liveMessage, liveAuthor, isReadOnly)
-        if (menuFp != liveFp) {
-            contextMenuState = contextMenuState.copy(isOpen = false, message = null)
+        val menuAuthor = menuMessage.user_id == currentUserId
+        val menuFp = messageContextMenuFingerprint(menuMessage, menuAuthor, isReadOnly)
+        if (menuFp != liveFp || liveMessage.id != menuMessage.id) {
+            contextMenuState = contextMenuState.copy(message = liveMessage)
         }
     }
 
@@ -502,7 +502,10 @@ fun ChatScreen(
                                                         aspectRatio = aspectRatio,
                                                     )
                                                 } else {
-                                                    null
+                                                    prepareOutboundFileForSend(
+                                                        clientMessageId = jobId,
+                                                        sourceUri = att.uri,
+                                                    )
                                                 }
                                                 val fileUri = staged?.stagedUri ?: att.uri
                                                 val optimisticMessage = Message(
@@ -522,14 +525,14 @@ fun ChatScreen(
                                                     pendingFileUri = fileUri,
                                                     pendingFilename = att.filename,
                                                     uploadJobId = jobId,
-                                                    uploadProgress = if (isImage) 0 else null,
+                                                    uploadProgress = 0,
                                                     pendingFileAspectRatio = staged?.aspectRatio ?: aspectRatio,
                                                     fileDimensions = imageDimensions?.let { listOf(it) },
                                                 )
                                                 withContext(Dispatchers.Main) {
                                                     panel.addMessage(optimisticMessage)
                                                 }
-                                                if (isImage && staged == null) {
+                                                if (staged == null) {
                                                     withContext(Dispatchers.Main) {
                                                         panel.cancelQueuedMessageByClientId(jobId)
                                                     }
@@ -626,7 +629,15 @@ fun ChatScreen(
                                 message = message,
                                 isAuthor = message.user_id == currentUserId,
                                 isContextMenuOpen = contextMenuState.isOpen,
-                                isContextMenuForThisMessage = contextMenuState.isOpen && contextMenuState.message?.id == message.id,
+                                isContextMenuForThisMessage = contextMenuState.isOpen && run {
+                                    val menu = contextMenuState.message ?: return@run false
+                                    val cid = menu.client_message_id?.trim().orEmpty()
+                                    if (cid.isNotEmpty()) {
+                                        message.client_message_id?.trim() == cid
+                                    } else {
+                                        menu.id == message.id
+                                    }
+                                },
                                 onLongPress = {
                                     if (isReadOnly) {
                                         return@MessageItem

@@ -18,6 +18,14 @@ import ru.fromchat.ui.chat.DecryptedImageCache
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 @Serializable
+private data class PersistedOptimisticOutboundPayload(
+    @SerialName("text") val text: String,
+    @SerialName("pendingFileUri") val pendingFileUri: String? = null,
+    @SerialName("pendingFilename") val pendingFilename: String? = null,
+    @SerialName("uploadJobId") val uploadJobId: String? = null,
+)
+
+@Serializable
 private data class PersistedDmMessagePayload(
     @SerialName("text") val text: String,
     @SerialName("envelope") val envelope: DmEnvelope,
@@ -39,7 +47,24 @@ data class ParsedDmMessageContent(
     val fileDimensions: List<Pair<Int, Int>>? = null,
     val isContentCorrupted: Boolean = false,
     val localPreviewUri: String? = null,
+    val pendingFileUri: String? = null,
+    val pendingFilename: String? = null,
+    val uploadJobId: String? = null,
 )
+
+/** Persists in-flight attachment fields so SQLDelight reload keeps the file row UI. */
+fun encodeOptimisticOutboundMessage(message: Message): String {
+    val pendingUri = message.pendingFileUri?.trim().orEmpty()
+    if (pendingUri.isEmpty()) return message.content
+    return json.encodeToString(
+        PersistedOptimisticOutboundPayload(
+            text = message.content,
+            pendingFileUri = pendingUri,
+            pendingFilename = message.pendingFilename?.trim()?.takeIf { it.isNotEmpty() },
+            uploadJobId = message.uploadJobId?.trim()?.takeIf { it.isNotEmpty() },
+        ),
+    )
+}
 
 fun resolveLocalPreviewUri(message: Message): String? {
     message.pendingFileUri?.takeIf { uri ->
@@ -106,9 +131,21 @@ fun encodePersistedDmMessage(message: Message): String {
 fun parseDmMessageContent(plaintext: String): ParsedDmMessageContent {
     val trimmed = plaintext.trim()
     if (trimmed.startsWith("{")) {
-        val isPersistedEnvelope = runCatching {
-            json.parseToJsonElement(trimmed).jsonObject.containsKey("envelope")
-        }.getOrDefault(false)
+        val root = runCatching { json.parseToJsonElement(trimmed).jsonObject }.getOrNull()
+        if (root?.containsKey("pendingFileUri") == true) {
+            return runCatching {
+                val payload = json.decodeFromString<PersistedOptimisticOutboundPayload>(trimmed)
+                ParsedDmMessageContent(
+                    text = payload.text,
+                    pendingFileUri = payload.pendingFileUri?.takeIf { it.isNotBlank() },
+                    pendingFilename = payload.pendingFilename?.takeIf { it.isNotBlank() },
+                    uploadJobId = payload.uploadJobId?.takeIf { it.isNotBlank() },
+                )
+            }.getOrElse {
+                ParsedDmMessageContent(text = plaintext)
+            }
+        }
+        val isPersistedEnvelope = root?.containsKey("envelope") == true
         if (isPersistedEnvelope) {
             return runCatching {
                 val payload = json.decodeFromString<PersistedDmMessagePayload>(trimmed)

@@ -38,6 +38,7 @@ import ru.fromchat.crypto.decryptEnvelope
 import ru.fromchat.ui.chat.AvatarInfo
 import ru.fromchat.ui.chat.ChatPanel
 import ru.fromchat.ui.chat.DecryptedImageCache
+import ru.fromchat.ui.chat.DownloadedFileRegistry
 import ru.fromchat.ui.chat.DmTypingHandler
 import ru.fromchat.ui.chat.TypingHandler
 import ru.fromchat.ui.chat.dedupeMessagesByClientId
@@ -290,11 +291,6 @@ class DmPanel(
                     }
                     if (hasOptimistic) {
                         mergeConfirmedOwnMessage(envelope, outcome.plaintext, outcome.isCorrupted)
-                        if (envelope.replyToId != null) {
-                            val replyTo = _state.messages.find { it.id == envelope.replyToId }
-                            updateMessage(envelope.id) { it.copy(reply_to = replyTo) }
-                        }
-                        MessageCacheStore.replaceDmMessages(otherUserId, _state.messages)
                         return@withLock
                     }
                 }
@@ -305,13 +301,14 @@ class DmPanel(
                     mergeConfirmedOwnMessage(envelope, outcome.plaintext, outcome.isCorrupted)
                 } else {
                     addMessage(createMessage(envelope, outcome.plaintext, outcome.isCorrupted))
+                    if (envelope.replyToId != null) {
+                        val replyTo = _state.messages.find { it.id == envelope.replyToId }
+                        updateMessage(envelope.id) { it.copy(reply_to = replyTo) }
+                    }
+                    scope.launch(Dispatchers.Default) {
+                        MessageCacheStore.replaceDmMessages(otherUserId, _state.messages)
+                    }
                 }
-                if (envelope.replyToId != null) {
-                    val replyTo = _state.messages.find { it.id == envelope.replyToId }
-                    updateMessage(envelope.id) { it.copy(reply_to = replyTo) }
-                }
-
-                MessageCacheStore.replaceDmMessages(otherUserId, _state.messages)
             }
         }
     }
@@ -400,7 +397,12 @@ class DmPanel(
                         }
                         else -> currentState.messages + merged
                     }
-                    currentState.copy(messages = dedupeMessagesByClientId(newMessages))
+                    val deduped = dedupeMessagesByClientId(newMessages)
+                    currentState.copy(messages = deduped)
+                }
+                if (envelope.replyToId != null) {
+                    val replyTo = _state.messages.find { it.id == envelope.replyToId }
+                    updateMessage(envelope.id) { it.copy(reply_to = replyTo) }
                 }
             }
 
@@ -408,6 +410,8 @@ class DmPanel(
                 MessageCacheStore.confirmDmMessage(otherUserId, cid, mergedForPersistence)
                 OutgoingMessageCoordinator.clearAttachmentOutboxAfterAck(cid)
             }
+            val snapshot = _state.messages
+            MessageCacheStore.replaceDmMessages(otherUserId, snapshot)
         }
     }
 
@@ -420,8 +424,10 @@ class DmPanel(
             val previous = _state.messages.find { it.id == envelope.id }
             val filesChanged = previous?.files != envelope.files
             if (filesChanged) {
+                DownloadedFileRegistry.invalidateForMessage(envelope.id)
                 DecryptedImageCache.invalidateForMessage(envelope.id)
                 envelope.clientMessageId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    DownloadedFileRegistry.invalidateForClientMessage(it)
                     DecryptedImageCache.invalidateForClientMessage(it)
                 }
             }
@@ -492,8 +498,10 @@ class DmPanel(
         }
         val clientId = _state.messages.find { it.id == messageId }?.client_message_id
         deleteMessageImmediately(messageId)
+        DownloadedFileRegistry.invalidateForMessage(messageId)
         DecryptedImageCache.invalidateForMessage(messageId)
         clientId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            DownloadedFileRegistry.invalidateForClientMessage(it)
             DecryptedImageCache.invalidateForClientMessage(it)
         }
         runCatching { ApiClient.deleteDm(messageId, otherUserId) }
@@ -513,8 +521,10 @@ class DmPanel(
         if (!involvesPeer) return
         scope.launch(Dispatchers.Default) {
             val clientId = _state.messages.find { it.id == data.id }?.client_message_id
+            DownloadedFileRegistry.invalidateForMessage(data.id)
             DecryptedImageCache.invalidateForMessage(data.id)
             clientId?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                DownloadedFileRegistry.invalidateForClientMessage(it)
                 DecryptedImageCache.invalidateForClientMessage(it)
             }
             deleteMessageImmediately(data.id)

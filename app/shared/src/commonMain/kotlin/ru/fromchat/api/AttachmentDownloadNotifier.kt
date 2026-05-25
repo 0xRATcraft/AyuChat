@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import ru.fromchat.ui.chat.AttachmentMediaLog
 import ru.fromchat.ui.chat.DecryptedImageCache
+import ru.fromchat.ui.chat.DownloadedFileRegistry
 
 sealed class AttachmentDownloadProgress {
     data class InProgress(val storageKey: String, val percent: Int) : AttachmentDownloadProgress()
@@ -44,6 +45,7 @@ object AttachmentDownloadNotifier {
         messageId: Int = 0,
         fileIndex: Int = 0,
         clientMessageId: String? = null,
+        mirrorAsFileAttachment: Boolean = false,
     ) {
         val msg = AttachmentMediaLog.messageLabel(messageLabel)
         val primaryKey = when (progress) {
@@ -51,11 +53,12 @@ object AttachmentDownloadNotifier {
             is AttachmentDownloadProgress.Success -> progress.storageKey
             is AttachmentDownloadProgress.Failed -> progress.storageKey
         }
-        val mirrorKeys = DecryptedImageCache.progressLookupKeys(
-            messageId = messageId,
-            fileIndex = fileIndex,
-            clientMessageId = clientMessageId,
-        ).ifEmpty { listOf(primaryKey) }
+        val mirrorKeys = when {
+            mirrorAsFileAttachment || primaryKey.startsWith("file_") ->
+                DownloadedFileRegistry.progressLookupKeys(messageId, fileIndex, clientMessageId)
+            else ->
+                DecryptedImageCache.progressLookupKeys(messageId, fileIndex, clientMessageId)
+        }.ifEmpty { listOf(primaryKey) }
         when (progress) {
             is AttachmentDownloadProgress.InProgress -> {
                 if (progress.percent == 1 || progress.percent % 15 == 0 || progress.percent >= 95) {
@@ -105,13 +108,32 @@ object AttachmentDownloadNotifier {
         }
     }
 
-    fun clearProgress(messageId: Int, fileIndex: Int, clientMessageId: String? = null) {
-        val keys = DecryptedImageCache.progressLookupKeys(messageId, fileIndex, clientMessageId).toSet()
+    fun clearProgress(
+        messageId: Int,
+        fileIndex: Int,
+        clientMessageId: String? = null,
+        mirrorAsFileAttachment: Boolean = false,
+    ) {
+        val keys = if (mirrorAsFileAttachment) {
+            DownloadedFileRegistry.progressLookupKeys(messageId, fileIndex, clientMessageId)
+        } else {
+            DecryptedImageCache.progressLookupKeys(messageId, fileIndex, clientMessageId)
+        }.toSet()
         _progressPercentByKey.update { map -> map - keys }
         _failedKeys.update { failed -> failed - keys }
     }
 
-    fun isFailed(messageId: Int, fileIndex: Int, clientMessageId: String? = null): Boolean =
-        DecryptedImageCache.progressLookupKeys(messageId, fileIndex, clientMessageId)
-            .any { it in _failedKeys.value }
+    fun isFailed(
+        messageId: Int,
+        fileIndex: Int,
+        clientMessageId: String? = null,
+        mirrorAsFileAttachment: Boolean = false,
+    ): Boolean {
+        val keys = if (mirrorAsFileAttachment) {
+            DownloadedFileRegistry.progressLookupKeys(messageId, fileIndex, clientMessageId)
+        } else {
+            DecryptedImageCache.progressLookupKeys(messageId, fileIndex, clientMessageId)
+        }
+        return keys.any { it in _failedKeys.value }
+    }
 }

@@ -202,6 +202,9 @@ fun MessageItem(
                     )
                     else -> false
                 }
+                val pendingHasOutboundFile = message.pendingFileUri != null &&
+                    message.files.isNullOrEmpty() &&
+                    !pendingIsImage
                 val firstContentIsImage = (
                     !showUsername || isAuthor
                 ) && message.reply_to == null && (
@@ -418,6 +421,8 @@ fun MessageItem(
                             val primaryFile = message.files?.firstOrNull()
                             val primaryIsImage = primaryFile != null && isImageFilename(primaryFile.name)
                             val showPrimaryImageSlot = pendingIsImage || primaryIsImage
+                            val showPrimaryFileSlot = pendingHasOutboundFile ||
+                                (primaryFile != null && !primaryIsImage)
                             if (showPrimaryImageSlot) {
                                 val imageKey = imageAttachmentKey(message, 0)
                                 val awaitingServer = message.id < 0 && message.files.isNullOrEmpty()
@@ -448,7 +453,6 @@ fun MessageItem(
                                     messageId = message.id,
                                     fileIndex = 0,
                                     clientMessageId = message.client_message_id,
-                                    onFileClick = null,
                                     onImageClick = { onImageClick?.invoke(message, 0) },
                                     onImageBounds = if (onImageBounds != null) {
                                         { rect -> onImageBounds.invoke(imageKey, rect) }
@@ -467,8 +471,34 @@ fun MessageItem(
                                     }
                                 )
                             }
+                            if (showPrimaryFileSlot) {
+                                val awaitingServer = message.id < 0 && message.files.isNullOrEmpty()
+                                val isOutboundPendingFile = awaitingServer && pendingHasOutboundFile
+                                val awaitingServerAck = isOutboundPendingFile &&
+                                    message.uploadProgress == null
+                                AttachmentPreview(
+                                    file = primaryFile,
+                                    dmEnvelope = message.dmEnvelope,
+                                    currentUserId = currentUserId,
+                                    pendingFileUri = message.pendingFileUri,
+                                    pendingFilename = message.pendingFilename,
+                                    isUploading = isOutboundPendingFile,
+                                    awaitingServerAck = awaitingServerAck,
+                                    uploadProgress = message.uploadProgress,
+                                    fileSizeBytes = message.fileSizes?.firstOrNull(),
+                                    messageId = message.id,
+                                    fileIndex = 0,
+                                    clientMessageId = message.client_message_id,
+                                    isAuthor = isAuthor,
+                                    messageLabel = message.content,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                )
+                            }
                             message.files?.forEachIndexed { index, file ->
                                 if (index == 0 && showPrimaryImageSlot && isImageFilename(file.name)) {
+                                    return@forEachIndexed
+                                }
+                                if (index == 0 && showPrimaryFileSlot && !isImageFilename(file.name)) {
                                     return@forEachIndexed
                                 }
                                 val isImage = isImageFilename(file.name)
@@ -492,10 +522,9 @@ fun MessageItem(
                                             DecryptedImageCache.isDecryptedImageCacheUri(message.pendingFileUri),
                                     ),
                                     fileSizeBytes = message.fileSizes?.getOrNull(index),
-                                    messageId = if (isImage) message.id else null,
-                                    fileIndex = if (isImage) index else null,
+                                    messageId = message.id,
+                                    fileIndex = index,
                                     clientMessageId = message.client_message_id,
-                                    onFileClick = null,
                                     onImageClick = if (isImage) { { onImageClick?.invoke(message, index) } } else null,
                                     onImageBounds = if (isImage && imageKey != null && onImageBounds != null) {
                                         { rect -> onImageBounds.invoke(imageKey, rect) }
@@ -515,7 +544,6 @@ fun MessageItem(
                             }
                         }
                         val hideFilenamePlaceholderCaption = message.pendingFileUri != null &&
-                            pendingIsImage &&
                             message.files.isNullOrEmpty() &&
                             message.pendingFilename != null &&
                             message.content == message.pendingFilename

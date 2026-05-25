@@ -327,7 +327,7 @@ object MessageCacheStore {
                 id = msg.id.toLong(),
                 conversationId = conversationId,
                 userId = msg.user_id.toLong(),
-                content = msg.content,
+                content = storedMessageContent(msg),
                 timestamp = msg.timestamp,
                 isRead = if (msg.is_read) 1L else 0L,
                 isEdited = if (msg.is_edited) 1L else 0L,
@@ -533,12 +533,22 @@ object MessageCacheStore {
             isContentCorrupted = parsed.isContentCorrupted,
         )
         return base.copy(
-            pendingFileUri = parsed.localPreviewUri ?: resolveLocalPreviewUri(base),
+            pendingFileUri = parsed.pendingFileUri
+                ?: parsed.localPreviewUri
+                ?: resolveLocalPreviewUri(base),
+            pendingFilename = parsed.pendingFilename ?: base.pendingFilename,
+            uploadJobId = parsed.uploadJobId ?: base.uploadJobId,
             pendingFileAspectRatio = parsed.fileAspectRatios?.firstOrNull()
                 ?: parsed.fileDimensions?.firstOrNull()?.let { (w, h) ->
                     aspectRatioFromDimensionPair(w, h)
                 },
         )
+    }
+
+    private fun storedMessageContent(msg: Message): String = when {
+        msg.id < 0 -> encodeOptimisticOutboundMessage(msg)
+        !msg.files.isNullOrEmpty() && msg.dmEnvelope != null -> encodePersistedDmMessage(msg)
+        else -> msg.content
     }
 
     suspend fun clearAll() {
@@ -572,12 +582,7 @@ object MessageCacheStore {
                         id = msg.id.toLong(),
                         conversationId = conversationId,
                         userId = msg.user_id.toLong(),
-                        content = when {
-                            msg.id < 0 -> msg.content
-                            !msg.files.isNullOrEmpty() && msg.dmEnvelope != null ->
-                                encodePersistedDmMessage(msg)
-                            else -> msg.content
-                        },
+                        content = storedMessageContent(msg),
                         timestamp = msg.timestamp,
                         isRead = if (msg.is_read) 1L else 0L,
                         isEdited = if (msg.is_edited) 1L else 0L,

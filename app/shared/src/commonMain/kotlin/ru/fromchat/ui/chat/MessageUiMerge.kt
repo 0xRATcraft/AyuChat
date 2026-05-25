@@ -50,6 +50,7 @@ internal fun mergeMessageUiFields(db: Message, panel: Message?): Message {
             else -> panel.pendingFileUri ?: db.pendingFileUri
         },
         pendingFilename = if (confirmed) null else panel.pendingFilename ?: db.pendingFilename,
+        uploadJobId = if (confirmed) null else panel.uploadJobId ?: db.uploadJobId,
         pendingFileAspectRatio = if (confirmed) {
             db.fileDimensions?.firstOrNull()?.let { (w, h) -> aspectRatioFromDimensionPair(w, h) }
                 ?: db.fileAspectRatios?.firstOrNull()
@@ -57,7 +58,6 @@ internal fun mergeMessageUiFields(db: Message, panel: Message?): Message {
         } else {
             panel.pendingFileAspectRatio ?: db.pendingFileAspectRatio
         },
-        uploadJobId = if (confirmed) null else panel.uploadJobId ?: db.uploadJobId,
         uploadProgress = if (confirmed) null else panel.uploadProgress ?: db.uploadProgress,
         files = db.files ?: panel.files,
         dmEnvelope = db.dmEnvelope ?: panel.dmEnvelope,

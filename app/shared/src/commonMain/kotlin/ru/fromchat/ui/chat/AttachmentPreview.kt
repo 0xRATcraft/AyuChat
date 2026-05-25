@@ -29,6 +29,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.InsertDriveFile
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -113,7 +114,6 @@ fun AttachmentPreview(
     messageId: Int? = null,
     fileIndex: Int? = null,
     clientMessageId: String? = null,
-    onFileClick: (() -> Unit)? = null,
     onImageClick: (() -> Unit)? = null,
     onImageBounds: ((Rect) -> Unit)? = null,
     isExpanded: Boolean = false,
@@ -139,7 +139,7 @@ fun AttachmentPreview(
 
     when {
         (file != null && !isImage) || isPendingFile -> {
-            ExpressiveFileAttachmentRow(
+            ChatFileAttachmentTile(
                 filename = file?.name
                     ?: pendingFilename?.takeIf { it.isNotBlank() }
                     ?: pendingFileUri?.substringAfterLast("/")
@@ -147,11 +147,18 @@ fun AttachmentPreview(
                         ?.takeIf { it.isNotBlank() }
                     ?: "File",
                 sizeBytes = fileSizeBytes,
-                onClick = if (file != null) onFileClick else null,
+                messageId = messageId ?: -1,
+                fileIndex = fileIndex ?: 0,
+                clientMessageId = clientMessageId,
+                file = file,
+                dmEnvelope = dmEnvelope,
+                currentUserId = currentUserId,
+                pendingFileUri = if (isPendingFile) pendingFileUri else null,
                 isAuthor = isAuthor,
                 isUploading = isPendingFile && (isUploading || awaitingServerAck),
                 uploadProgress = if (isPendingFile) uploadProgress else null,
-                modifier = modifier
+                messageLabel = messageLabel,
+                modifier = modifier,
             )
         }
         showImageTile -> {
@@ -962,13 +969,14 @@ private fun formatFileSize(bytes: Long): String {
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ExpressiveFileAttachmentRow(
+internal fun ExpressiveFileAttachmentRow(
     filename: String,
     sizeBytes: Long?,
     onClick: (() -> Unit)?,
     isAuthor: Boolean,
     isUploading: Boolean,
     uploadProgress: Int?,
+    isDownloaded: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val headlineColor = if (isAuthor) Color.White else MaterialTheme.colorScheme.onSurface
@@ -1022,7 +1030,11 @@ private fun ExpressiveFileAttachmentRow(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Rounded.Download,
+                            imageVector = if (isDownloaded) {
+                                Icons.Rounded.InsertDriveFile
+                            } else {
+                                Icons.Rounded.Download
+                            },
                             contentDescription = null,
                             modifier = Modifier.size(26.dp),
                             tint = if (isAuthor) {

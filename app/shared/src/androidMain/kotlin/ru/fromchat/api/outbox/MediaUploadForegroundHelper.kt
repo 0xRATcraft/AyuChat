@@ -12,6 +12,7 @@ import com.pr0gramm3r101.utils.UtilsLibrary
 import org.jetbrains.compose.resources.getString
 import ru.fromchat.Res
 import ru.fromchat.notif_media_upload_channel_name
+import ru.fromchat.notif_media_upload_percent
 import ru.fromchat.notif_media_upload_progress
 import ru.fromchat.notif_media_upload_text
 import ru.fromchat.notif_media_upload_title
@@ -30,9 +31,17 @@ object MediaUploadForegroundHelper {
         val defaultText = getString(Res.string.notif_media_upload_text)
         ensureChannel(context, channelName)
         val contentText = when {
-            percent != null && !filename.isNullOrBlank() ->
-                getString(Res.string.notif_media_upload_progress, percent.coerceIn(0, 100), filename)
-            percent != null -> "$percent%"
+            percent != null -> {
+                val percentLabel = getString(
+                    Res.string.notif_media_upload_percent,
+                    percent.coerceIn(0, 100),
+                )
+                if (!filename.isNullOrBlank()) {
+                    getString(Res.string.notif_media_upload_progress, percentLabel, filename)
+                } else {
+                    percentLabel
+                }
+            }
             else -> defaultText
         }
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
