@@ -165,7 +165,7 @@ object ProfileCache {
                     ?: existing?.profilePicture,
                 bio = existing?.bio,
                 online = user.online,
-                lastSeen = user.last_seen.takeIf { it.isNotBlank() } ?: existing?.lastSeen,
+                lastSeen = user.last_seen?.takeIf { it.isNotBlank() } ?: existing?.lastSeen,
                 createdAt = user.created_at.takeIf { it.isNotBlank() } ?: existing?.createdAt,
                 verified = user.verified ?: existing?.verified,
                 verificationStatus = user.verificationStatus ?: existing?.verificationStatus,

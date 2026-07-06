@@ -50,7 +50,7 @@ internal fun confirmPasswordStepPage(
     onConfirmPasswordChange: (String) -> Unit,
     password: String,
     onContinue: suspend () -> Unit,
-    onSnackbar: (String) -> Unit,
+    onSnackbar: (String, Throwable?) -> Unit,
 ): ExpressiveStepPage {
     val scope = rememberCoroutineScope()
     val colorScheme = MaterialTheme.colorScheme
@@ -102,12 +102,12 @@ internal fun confirmPasswordStepPage(
             ActionButton(
                 onClick = {
                     if (confirmPassword.isBlank()) {
-                        onSnackbar(fillAll)
+                        onSnackbar(fillAll, null)
                         return@ActionButton
                     }
 
                     if (confirmPassword != password) {
-                        onSnackbar(pwdMatch)
+                        onSnackbar(pwdMatch, null)
                         return@ActionButton
                     }
 

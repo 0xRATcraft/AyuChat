@@ -54,7 +54,7 @@ internal fun passwordStepPage(
     onPasswordChange: (String) -> Unit,
     onLoginSuccess: () -> Unit,
     onRegister: suspend () -> Unit,
-    onSnackbar: (String) -> Unit,
+    onSnackbar: (String, Throwable?) -> Unit,
 ): ExpressiveStepPage {
     val scope = rememberCoroutineScope()
     var busy by remember { mutableStateOf(false) }
@@ -112,7 +112,7 @@ internal fun passwordStepPage(
                     if (busy) return@ActionButton
 
                     if (password.length !in 5..50) {
-                        onSnackbar(pwdLen)
+                        onSnackbar(pwdLen, null)
                         return@ActionButton
                     }
 
@@ -138,15 +138,15 @@ internal fun passwordStepPage(
                                 }
 
                                 is PasswordStepResult.WrongPassword -> {
-                                    onSnackbar(result.message)
+                                    onSnackbar(result.message, null)
                                 }
 
                                 is PasswordStepResult.RateLimited -> {
-                                    onSnackbar(result.message)
+                                    onSnackbar(result.message, null)
                                 }
 
                                 is PasswordStepResult.Error -> {
-                                    onSnackbar(result.message)
+                                    onSnackbar(result.message, result.cause)
                                 }
                             }
                         } finally {

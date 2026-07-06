@@ -8,7 +8,7 @@ import ru.fromchat.api.schema.user.profile.VerificationStatus
 data class User(
     val id: Int,
     val created_at: String,
-    val last_seen: String,
+    val last_seen: String? = null,
     val online: Boolean,
     val username: String,
     @SerialName("display_name") val displayName: String? = null,

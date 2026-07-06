@@ -57,7 +57,7 @@ internal fun profileStepPage(
     password: String,
     onRegisterSuccess: () -> Unit,
     onUsernameTaken: () -> Unit,
-    onSnackbar: (String) -> Unit,
+    onSnackbar: (String, Throwable?) -> Unit,
 ): ExpressiveStepPage {
     val scope = rememberCoroutineScope()
     val fieldColors = expressiveStepFieldColors()
@@ -128,12 +128,12 @@ internal fun profileStepPage(
                     if (busy) return@ActionButton
 
                     if (displayName.isBlank() || displayName.trim().length > DISPLAY_NAME_MAX) {
-                        onSnackbar(displayNameError)
+                        onSnackbar(displayNameError, null)
                         return@ActionButton
                     }
 
                     if (bio.trim().length > BIO_MAX) {
-                        onSnackbar(unexpected)
+                        onSnackbar(unexpected, null)
                         return@ActionButton
                     }
 
@@ -155,12 +155,12 @@ internal fun profileStepPage(
                                 }
 
                                 is RegisterResult.UsernameTaken -> {
-                                    onSnackbar(usernameTaken)
+                                    onSnackbar(usernameTaken, null)
                                     onUsernameTaken()
                                 }
 
                                 is RegisterResult.Error -> {
-                                    onSnackbar(result.message)
+                                    onSnackbar(result.message, result.cause)
                                 }
                             }
                         } finally {

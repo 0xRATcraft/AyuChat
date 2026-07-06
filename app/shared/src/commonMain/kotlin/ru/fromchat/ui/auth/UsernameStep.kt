@@ -45,7 +45,7 @@ internal fun usernameStepPage(
     username: String,
     onUsernameChange: (String) -> Unit,
     onContinue: suspend () -> Unit,
-    onSnackbar: (String) -> Unit,
+    onSnackbar: (String, Throwable?) -> Unit,
 ): ExpressiveStepPage {
     val scope = rememberCoroutineScope()
     val colorScheme = MaterialTheme.colorScheme
@@ -95,11 +95,11 @@ internal fun usernameStepPage(
                     if (busy) return@ActionButton
                     val trimmed = username.trim()
                     if (trimmed.isBlank()) {
-                        onSnackbar(fillAll)
+                        onSnackbar(fillAll, null)
                         return@ActionButton
                     }
                     if (trimmed.length !in 3..20) {
-                        onSnackbar(usernameLenError)
+                        onSnackbar(usernameLenError, null)
                         return@ActionButton
                     }
                     onUsernameChange(trimmed)
@@ -107,7 +107,7 @@ internal fun usernameStepPage(
                         busy = true
                         try {
                             if (!probeCurrentServer()) {
-                                onSnackbar(serverFail)
+                                onSnackbar(serverFail, null)
                             } else {
                                 onContinue()
                             }

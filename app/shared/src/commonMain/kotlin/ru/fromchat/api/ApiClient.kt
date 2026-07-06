@@ -1406,7 +1406,11 @@ object ApiClient {
     }
 
     suspend fun logout() {
-        runCatching { http.get("${ServerConfig.apiBaseUrl}/logout") }
+        runCatching {
+            http.get("${ServerConfig.apiBaseUrl}/logout")
+        }.onFailure { e ->
+            ru.fromchat.Logger.e("ApiClient", "Server logout failed", e)
+        }
         runCatching { unregisterFcmTokenFromServer() }
         clearLocalSession()
     }

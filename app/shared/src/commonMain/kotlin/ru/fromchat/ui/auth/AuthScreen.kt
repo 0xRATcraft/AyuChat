@@ -3,7 +3,6 @@ package ru.fromchat.ui.auth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,7 +39,7 @@ import ru.fromchat.ui.components.ExpressiveStepFlowScaffold
 import ru.fromchat.ui.components.Text
 import ru.fromchat.ui.components.TextCta
 import ru.fromchat.ui.components.rememberExpressiveStepFlow
-import ru.fromchat.ui.components.showReplacingSnackbar
+import ru.fromchat.ui.components.showLoggedSnackbar
 import ru.fromchat.ui.main.settings.SettingsStepHorizontalPadding
 import kotlin.time.Duration.Companion.milliseconds
 
@@ -56,13 +55,13 @@ internal sealed interface PasswordStepResult {
     data object AdvanceToRegister : PasswordStepResult
     data class WrongPassword(val message: String) : PasswordStepResult
     data class RateLimited(val message: String) : PasswordStepResult
-    data class Error(val message: String) : PasswordStepResult
+    data class Error(val message: String, val cause: Throwable? = null) : PasswordStepResult
 }
 
 internal sealed interface RegisterResult {
     data object Success : RegisterResult
     data object UsernameTaken : RegisterResult
-    data class Error(val message: String) : RegisterResult
+    data class Error(val message: String, val cause: Throwable? = null) : RegisterResult
 }
 
 private const val AUTH_SERVER_PROBE_TIMEOUT_MS = 5_000L
@@ -150,8 +149,8 @@ private suspend fun login(
 
         else -> PasswordStepResult.Error(parseClientError(e, unexpectedError))
     }
-} catch (_: Exception) {
-    PasswordStepResult.Error(unexpectedError)
+} catch (e: Exception) {
+    PasswordStepResult.Error(unexpectedError, e)
 }
 
 internal suspend fun register(
@@ -186,8 +185,8 @@ internal suspend fun register(
     } else {
         RegisterResult.Error(parseClientError(e, unexpectedError))
     }
-} catch (_: Exception) {
-    RegisterResult.Error(unexpectedError)
+} catch (e: Exception) {
+    RegisterResult.Error(unexpectedError, e)
 }
 
 private suspend fun isUsernameTakenError(e: ClientRequestException) =
@@ -232,14 +231,13 @@ fun AuthScreen(
     var displayName by remember { mutableStateOf("") }
     var bio by remember { mutableStateOf("") }
 
-    fun snackbar(text: String) {
-        scope.launch {
-            snackbarHostState.showReplacingSnackbar(
-                message = text,
-                withDismissAction = false,
-                duration = SnackbarDuration.Short,
-            )
-        }
+    fun snackbar(text: String, cause: Throwable? = null) {
+        scope.showLoggedSnackbar(
+            hostState = snackbarHostState,
+            message = text,
+            logTag = "Auth",
+            cause = cause,
+        )
     }
 
     val resetToUsername: () -> Unit = {

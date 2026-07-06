@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.outlined.BugReport
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -68,33 +70,38 @@ fun WelcomeScreen(
                 .fillMaxSize()
                 .padding(innerPadding),
         ) {
-            IconButton(
-                onClick = { menuExpanded = true },
-                modifier = Modifier.align(Alignment.TopEnd),
-            ) {
-                Icon(
-                    imageVector = Icons.Default.MoreVert,
-                    contentDescription = stringResource(Res.string.more),
-                )
-            }
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-            ) {
-                DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.about)) },
-                    onClick = {
-                        menuExpanded = false
-                        navController.navigate(SettingsRoutes.About)
-                    },
-                )
-                DropdownMenuItem(
-                    text = { Text(stringResource(Res.string.logs_title)) },
-                    onClick = {
-                        menuExpanded = false
-                        navController.navigate(SettingsRoutes.Logs)
-                    },
-                )
+            Box(modifier = Modifier.align(Alignment.TopEnd)) {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = stringResource(Res.string.more),
+                    )
+                }
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                ) {
+                    DropdownMenuItem(
+                        text = { Text(stringResource(Res.string.about)) },
+                        leadingIcon = {
+                            Icon(Icons.Default.Info, contentDescription = null)
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            navController.navigate(SettingsRoutes.About)
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = { Text(stringResource(Res.string.logs_title)) },
+                        leadingIcon = {
+                            Icon(Icons.Outlined.BugReport, contentDescription = null)
+                        },
+                        onClick = {
+                            menuExpanded = false
+                            navController.navigate(SettingsRoutes.Logs)
+                        },
+                    )
+                }
             }
 
             Column(
