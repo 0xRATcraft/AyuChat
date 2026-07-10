@@ -27,6 +27,8 @@ import ru.fromchat.MainActivity
 import ru.fromchat.Logger
 import ru.fromchat.R
 import ru.fromchat.api.ApiClient
+import ru.fromchat.api.local.db.store.ProfileCache
+import ru.fromchat.api.local.db.store.visibleDisplayName
 import ru.fromchat.api.local.messages.ChatListPreviewStrings
 import ru.fromchat.api.local.messages.buildChatListPreview
 import ru.fromchat.api.local.messages.buildChatListPreviewFromEnvelope
@@ -301,15 +303,13 @@ object NotificationHelper {
                     }
                 }
 
-                val senderName = if (
-                    envelopeId == dmMessageId && !dmSenderName.isNullOrBlank()
-                ) {
-                    dmSenderName
-                } else if (!envelope.senderUsername.isNullOrBlank()) {
-                    envelope.senderUsername
-                } else {
-                    "User ${envelope.senderId}"
-                }
+                val senderName = when {
+                    envelopeId == dmMessageId && !dmSenderName.isNullOrBlank() -> dmSenderName
+                    !envelope.senderUsername.isNullOrBlank() -> envelope.senderUsername
+                    else -> ProfileCache.get(envelope.senderId)
+                        ?.visibleDisplayName(currentUserId)
+                        ?.takeIf { it.isNotBlank() }
+                }.orEmpty()
                 val dmConversationUserId = envelope.senderId
                 val notificationBody = buildChatListPreviewFromEnvelope(
                     envelope = envelope,
@@ -319,7 +319,11 @@ object NotificationHelper {
 
                 showFallbackPushNotification(
                     context = context,
-                    title = "Direct message from $senderName",
+                    title = if (senderName.isNotBlank()) {
+                        "Direct message from $senderName"
+                    } else {
+                        "Direct message"
+                    },
                     body = notificationBody,
                     sender = senderName,
                     messageId = envelopeId,

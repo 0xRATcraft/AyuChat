@@ -54,7 +54,7 @@ object CallStore {
         val me = ApiClient.user?.id
         val p = ProfileCache.get(peerUserId)
         val label = p?.visibleDisplayName(me)?.orEmpty()?.ifBlank { null }
-        return label ?: p?.username?.takeIf { it.isNotBlank() } ?: "User $peerUserId"
+        return label ?: p?.username?.takeIf { it.isNotBlank() }.orEmpty()
     }
 
     fun onWebSocketMessage(message: WebSocketMessage) {

@@ -93,7 +93,7 @@ object MessageRepository {
 
     suspend fun replaceDmConversations(
         conversations: List<DmConversation>,
-        previewStrings: ChatListPreviewStrings,
+        previewStrings: ChatListPreviewStrings? = null,
     ) = MessageCacheStore.replaceDmConversations(conversations, previewStrings)
 
     suspend fun loadCachedDmConversations(): List<CachedConversation> =

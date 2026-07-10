@@ -166,6 +166,23 @@ object ApiClient {
         )
     }
 
+    suspend fun applyOwnProfile(profile: UserProfile) {
+        syncSuspensionStateFromProfile(profile)
+        val currentUser = user ?: return
+        user = currentUser.copy(
+            username = profile.username,
+            displayName = profile.displayName,
+            bio = profile.bio,
+            profile_picture = profile.profilePicture,
+            verified = profile.verified,
+            verificationStatus = profile.verificationStatus,
+            deleted = profile.deleted,
+            online = profile.online,
+            last_seen = profile.lastSeen,
+        )
+        persistCurrentUser()
+    }
+
     fun clearSuspensionState() {
         _suspensionState.value = SuspensionState()
         user = user?.copy(

@@ -90,7 +90,6 @@ import ru.fromchat.unread_count_overflow
 import ru.fromchat.ui.profile.deletedUserDisplayNameForUi
 import ru.fromchat.ui.profile.displayNameForUi
 import ru.fromchat.ui.profile.peerIsDeleted
-import ru.fromchat.user_fallback
 
 internal object ChatListLayout {
     private const val CATEGORY_TOP_SPACER = 0
@@ -873,7 +872,7 @@ internal fun DmConversationRowContent(
         isPeerDeleted -> deletedUserDisplayNameForUi()
         !cached?.displayName.isNullOrBlank() -> cached.displayName!!.trim()
         conversation.displayName.isNotBlank() -> conversation.displayName
-        else -> stringResource(Res.string.user_fallback, conversation.otherUserId)
+        else -> cached?.visibleUsername(currentUserId).orEmpty()
     }
     val avatarInitialsLabel = when {
         isPeerDeleted -> deletedUserDisplayNameForUi()

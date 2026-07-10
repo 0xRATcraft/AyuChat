@@ -180,8 +180,7 @@ fun MessageItem(
     var isPressed by remember { mutableStateOf(false) }
     var avatarPressed by remember(message.id) { mutableStateOf(false) }
     var replyPressed by remember(message.id) { mutableStateOf(false) }
-    var bubbleBodyPositionInRoot by remember { mutableStateOf(Offset.Zero) }
-    var slackRowLayoutCoords by remember(message.id) { mutableStateOf<LayoutCoordinates?>(null) }
+    var rowLayoutCoords by remember(message.id) { mutableStateOf<LayoutCoordinates?>(null) }
     val scaleTarget = if (isPressed && !isContextMenuForThisMessage && !isContextMenuOpen) 0.96f else 1f
     val avatarScaleTarget = if (avatarPressed && !isContextMenuOpen) 0.96f else 1f
     val replyScaleTarget = if (replyPressed && !isContextMenuOpen) 0.96f else 1f
@@ -375,9 +374,33 @@ fun MessageItem(
             )
         }
 
+        val rowLongPress =
+            if (isContextMenuOpen) Modifier
+            else Modifier.pointerInput(isContextMenuOpen, message.id) {
+                detectTapGestures(
+                    onPress = {
+                        isPressed = true
+                        try {
+                            awaitRelease()
+                        } finally {
+                            isPressed = false
+                        }
+                    },
+                    onLongPress = { localOffset ->
+                        val coords = rowLayoutCoords
+                        if (coords != null && coords.isAttached) {
+                            onTapPosition(coords.localToRoot(localOffset))
+                        }
+                        onLongPress()
+                    },
+                )
+            }
+
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .onGloballyPositioned { rowLayoutCoords = it }
+                .then(rowLongPress)
                 .padding(horizontal = 8.dp)
                 .enterLayoutHeight(
                     scale = enterScale.value,
@@ -467,13 +490,9 @@ fun MessageItem(
                             message.files?.firstOrNull()?.let { isImageFilename(it.name) } == true
                     )
 
-                    val bubblePressAndLongPress =
-                        if (isContextMenuOpen) Modifier
-                        else Modifier.pointerInput(
-                            isContextMenuOpen,
-                            message.id,
-                            onBubbleTap,
-                        ) {
+                    val bubbleTap =
+                        if (isContextMenuOpen || onBubbleTap == null) Modifier
+                        else Modifier.pointerInput(message.id, onBubbleTap) {
                             detectTapGestures(
                                 onPress = {
                                     isPressed = true
@@ -483,48 +502,11 @@ fun MessageItem(
                                         isPressed = false
                                     }
                                 },
-                                onTap = { onBubbleTap?.invoke() },
-                                onLongPress = { localOffset ->
-                                    onTapPosition(bubbleBodyPositionInRoot + localOffset)
-                                    onLongPress()
-                                }
+                                onTap = { onBubbleTap.invoke() },
                             )
                         }
 
-                    val slackRowPressAndLongPress =
-                        if (isContextMenuOpen) Modifier
-                        else Modifier.pointerInput(
-                            isContextMenuOpen,
-                            message.id,
-                            onBubbleTap,
-                        ) {
-                            detectTapGestures(
-                                onPress = {
-                                    isPressed = true
-                                    try {
-                                        awaitRelease()
-                                    } finally {
-                                        isPressed = false
-                                    }
-                                },
-                                onTap = { onBubbleTap?.invoke() },
-                                onLongPress = { localOffset ->
-                                    val coords = slackRowLayoutCoords
-                                    if (coords != null && coords.isAttached) {
-                                        onTapPosition(coords.localToRoot(localOffset))
-                                    } else {
-                                        onTapPosition(bubbleBodyPositionInRoot + localOffset)
-                                    }
-                                    onLongPress()
-                                }
-                            )
-                        }
-
-                    Box(
-                        modifier = Modifier
-                            .onGloballyPositioned { slackRowLayoutCoords = it }
-                            .then(slackRowPressAndLongPress)
-                    ) {
+                    Box {
                         Column(
                             horizontalAlignment =
                                 if (isAuthor) Alignment.End else Alignment.Start,
@@ -618,13 +600,10 @@ fun MessageItem(
                                     }
                                 }
 
-                                val gestureWidthModifier = Modifier.fillMaxWidth()
                                 Box(
-                                    modifier = gestureWidthModifier
-                                        .onGloballyPositioned { coordinates ->
-                                            bubbleBodyPositionInRoot = coordinates.positionInRoot()
-                                        }
-                                        .then(bubblePressAndLongPress)
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .then(bubbleTap)
                                 ) {
                                     Column {
                                         replyRef?.let { replyToMsg ->
@@ -1069,3 +1048,19 @@ private fun MessageReplyQuote(
         }
     }
 }
+
+@Composable
+internal fun messageBubbleContentColor(isAuthor: Boolean) =
+    if (isAuthor) {
+        MaterialTheme.colorScheme.onPrimary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+
+@Composable
+internal fun messageBubbleSupportingContentColor(isAuthor: Boolean) =
+    if (isAuthor) {
+        MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }

@@ -26,6 +26,7 @@ import ru.fromchat.api.local.send.outboundFailureErrorKey
 import ru.fromchat.api.schema.messages.Message
 import ru.fromchat.api.schema.messages.dm.SendDmFile
 import ru.fromchat.api.local.cache.CacheContext
+import ru.fromchat.api.local.db.buildDmOutboundPlaintext
 import ru.fromchat.api.local.cache.clearUploadArtifacts
 import ru.fromchat.api.local.cache.clearUploadSecretsOnly
 import ru.fromchat.api.local.AttachmentMediaLog
@@ -179,10 +180,11 @@ object OutgoingMessageCoordinator {
         val conversationId = conversationIdForDm(recipientId)
         withContext(Dispatchers.Default) {
             MessageRepository.upsertDmMessage(recipientId, optimisticMessage)
+            val outboundPlaintext = buildDmOutboundPlaintext(plaintext, replyToId)
             val payload = json.encodeToString(
                 DmOutboxPayload(
                     recipientId = recipientId,
-                    plaintext = plaintext,
+                    plaintext = outboundPlaintext,
                     clientMessageId = clientMessageId,
                     replyToId = replyToId,
                     transportFiles = transportFiles,
@@ -226,10 +228,11 @@ object OutgoingMessageCoordinator {
         )
         withContext(Dispatchers.Default) {
             MessageRepository.upsertDmMessage(recipientId, optimisticMessage)
+            val outboundPlaintext = buildDmOutboundPlaintext(plaintext, replyToId)
             val payload = json.encodeToString(
                 DmAttachmentOutboxPayload(
                     recipientId = recipientId,
-                    plaintext = plaintext,
+                    plaintext = outboundPlaintext,
                     clientMessageId = clientMessageId,
                     replyToId = replyToId,
                     fileUri = fileUri,

@@ -3,6 +3,9 @@ package ru.fromchat.api.local.db.store
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -45,8 +48,15 @@ object ProfileCache {
     @Volatile
     private var loadedInstanceId: String = ""
 
+    private val _revision = MutableStateFlow(0)
+    val revision: StateFlow<Int> = _revision.asStateFlow()
+
     private val persistMutex = Mutex()
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    private fun bumpRevision() {
+        _revision.value++
+    }
 
     fun get(userId: Int): UserProfile? = profiles[userId]
 
@@ -125,6 +135,7 @@ object ProfileCache {
         }
         val cur = profiles
         profiles = cur + (profile.id to profile)
+        bumpRevision()
         val instanceId = loadedInstanceId
         if (instanceId.isNotEmpty()) {
             ioScope.launch {
@@ -137,6 +148,7 @@ object ProfileCache {
         val cur = profiles
         if (userId !in cur) return
         profiles = cur - userId
+        bumpRevision()
         val instanceId = loadedInstanceId
         if (instanceId.isNotEmpty()) {
             ioScope.launch {
@@ -154,8 +166,7 @@ object ProfileCache {
     }
 
     fun mergeFromDmUser(user: User) {
-        val existing = get(user.id)
-        if (existing != null && !existing.isClientPreviewOnly) return
+        if (user.id <= 0) return
 
         val incomingUsername = user.username.trim()
         if (incomingUsername.isEmpty()) return
@@ -165,6 +176,28 @@ object ProfileCache {
             null
         } else {
             user.displayName?.trim()?.takeIf { it.isNotEmpty() } ?: incomingUsername
+        }
+
+        val existing = get(user.id)
+        if (existing != null && !existing.isClientPreviewOnly) {
+            val patched = existing.copy(
+                username = incomingUsername,
+                displayName = if (isDeleted) null else incomingDisplayName ?: existing.displayName,
+                profilePicture = if (isDeleted) {
+                    null
+                } else {
+                    user.profile_picture?.takeIf { it.isNotBlank() } ?: existing.profilePicture
+                },
+                online = user.online,
+                lastSeen = user.last_seen?.takeIf { it.isNotBlank() } ?: existing.lastSeen,
+                verified = user.verified ?: existing.verified,
+                verificationStatus = user.verificationStatus ?: existing.verificationStatus,
+                suspended = user.suspended ?: existing.suspended,
+                suspensionReason = user.suspensionReason ?: existing.suspensionReason,
+                deleted = isDeleted,
+            )
+            if (patched != existing) put(patched)
+            return
         }
 
         put(
@@ -272,6 +305,7 @@ object ProfileCache {
                     emptyMap()
                 }
                 pruneUnusableClientPreviewsLocked()
+                bumpRevision()
             }
         }
     }
@@ -286,6 +320,7 @@ object ProfileCache {
                 emptyMap()
             }
             pruneUnusableClientPreviewsLocked()
+            bumpRevision()
         }
     }
 
@@ -308,6 +343,7 @@ object ProfileCache {
         persistMutex.withLock {
             profiles = emptyMap()
             loadedInstanceId = ""
+            bumpRevision()
         }
     }
 }

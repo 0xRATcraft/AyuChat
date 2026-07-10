@@ -109,7 +109,6 @@
     <string name="notif_media_upload_title">Отправка вложения</string>
     <string name="notif_media_upload_text">Загрузка продолжается в фоне</string>
     <string name="message_sender_you">Вы</string>
-    <string name="user_fallback">Человек %1$d</string>
     <string name="deleted_account">Удалённый аккаунт</string>
     <string name="account_suspended">Аккаунт заблокирован</string>
     <string name="action_delete_chat">Удалить чат</string>

@@ -10,6 +10,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -108,6 +109,7 @@ import ru.fromchat.logging.LogShareCompression
 import ru.fromchat.ui.LocalNavController
 import ru.fromchat.ui.components.BackHandler
 import ru.fromchat.ui.components.PredictiveBackHandler
+import ru.fromchat.ui.components.ScreenSurface
 import ru.fromchat.ui.components.Text
 import ru.fromchat.ui.main.chats.ChatSelectionTransitionSpring
 import ru.fromchat.ui.main.chats.SelectionCheckmarkSlot
@@ -424,6 +426,7 @@ fun LogFilesScreen(
     val listBottomInset = if (selectionBarVisible) 88.dp else 8.dp
     val fileCategoryColor = MaterialTheme.colorScheme.surfaceContainer
 
+    ScreenSurface {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = Color.Transparent,
@@ -442,7 +445,9 @@ fun LogFilesScreen(
         topBar = {
             Box {
                 TopAppBar(
-                    modifier = Modifier.graphicsLayer { alpha = 1f - selectionProgress },
+                    modifier = Modifier
+                        .graphicsLayer { alpha = 1f - selectionProgress }
+                        .background(MaterialTheme.colorScheme.surfaceContainer),
                     navigationIcon = {
                         IconButton(
                             onClick = { navController.navigateUp() },
@@ -493,7 +498,8 @@ fun LogFilesScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding),
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background),
         ) {
             DisableSelection {
                 LazyColumn(
@@ -625,6 +631,7 @@ fun LogFilesScreen(
                 }
             }
         }
+    }
     }
 }
 

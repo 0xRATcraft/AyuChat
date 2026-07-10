@@ -42,7 +42,6 @@ import ru.fromchat.call_dismiss
 import ru.fromchat.call_failed_title
 import ru.fromchat.call_incoming_subtitle
 import ru.fromchat.ui.components.Text
-import ru.fromchat.user_fallback
 
 @Composable
 fun CallOverlay(modifier: Modifier = Modifier) {
@@ -96,7 +95,8 @@ fun CallOverlay(modifier: Modifier = Modifier) {
             val title =
                 cached?.displayNameForUi(me)?.takeIf { it.isNotBlank() }
                     ?: cached?.username?.takeIf { it.isNotBlank() }
-                    ?: stringResource(Res.string.user_fallback, s.fromUserId)
+                    ?: s.fromUsername.takeIf { it.isNotBlank() }
+                    ?: ""
             Box(
                 modifier = modifier
                     .fillMaxSize()

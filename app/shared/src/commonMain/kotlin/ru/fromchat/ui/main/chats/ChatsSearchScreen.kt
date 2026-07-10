@@ -49,6 +49,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.pr0gramm3r101.utils.resetFocus
@@ -76,6 +77,7 @@ import ru.fromchat.search_not_found_message
 import ru.fromchat.search_title
 import ru.fromchat.ui.components.SearchBar
 import ru.fromchat.ui.components.SearchBarSharedElement
+import ru.fromchat.ui.components.ScreenSurface
 import ru.fromchat.ui.components.Text
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -229,12 +231,12 @@ fun ChatsSearchScreen(
         }
     }
 
-    Scaffold(
-        modifier = Modifier
-            .imePadding()
-            .windowInsetsPadding(WindowInsets.safeDrawing),
-        contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = {
+    ScreenSurface {
+        Scaffold(
+            modifier = Modifier.imePadding(),
+            containerColor = Color.Transparent,
+            contentWindowInsets = WindowInsets.safeDrawing,
+            topBar = {
             SearchBar(
                 query = searchText,
                 onQueryChange = { searchText = it },
@@ -324,6 +326,7 @@ fun ChatsSearchScreen(
                 }
             }
         }
+    }
     }
 }
 

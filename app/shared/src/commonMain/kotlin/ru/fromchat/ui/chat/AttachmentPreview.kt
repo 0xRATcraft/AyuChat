@@ -1090,7 +1090,7 @@ private fun AttachmentUploadFailedOverlay(
     }
     val retryText = stringResource(Res.string.attachment_retry)
     val retryCd = stringResource(Res.string.cd_attachment_upload_retry)
-    val headlineColor = if (isAuthor) Color.White else MaterialTheme.colorScheme.onSurface
+    val headlineColor = messageBubbleContentColor(isAuthor)
     Box(
         modifier = modifier
             .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f)),
@@ -1125,7 +1125,7 @@ private fun AttachmentImageLoadFailedOverlay(
     val failedText = stringResource(Res.string.attachment_image_load_failed)
     val retryText = stringResource(Res.string.attachment_retry)
     val retryCd = stringResource(Res.string.cd_attachment_retry)
-    val headlineColor = if (isAuthor) Color.White else MaterialTheme.colorScheme.onSurface
+    val headlineColor = messageBubbleContentColor(isAuthor)
     Box(
         modifier = modifier
             .background(MaterialTheme.colorScheme.scrim.copy(alpha = 0.35f)),
@@ -1194,12 +1194,8 @@ internal fun ExpressiveFileAttachmentRow(
     onCancelProgress: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val headlineColor = if (isAuthor) Color.White else MaterialTheme.colorScheme.onSurface
-    val supportingColor = if (isAuthor) {
-        Color.White.copy(alpha = 0.78f)
-    } else {
-        MaterialTheme.colorScheme.onSurfaceVariant
-    }
+    val headlineColor = messageBubbleContentColor(isAuthor)
+    val supportingColor = messageBubbleSupportingContentColor(isAuthor)
     val leadingSize = 48.dp
     Row(
         modifier = modifier

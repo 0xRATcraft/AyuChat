@@ -51,11 +51,13 @@ object ChatListSync {
     }
 
     private suspend fun syncDmConversations() {
-        val previewStrings = MessageCacheStore.listPreviewStrings ?: return
         runCatching {
             val conversations = ApiClient.getDmConversations()
             conversations.forEach { ProfileCache.mergeFromDmUser(it.user) }
-            MessageRepository.replaceDmConversations(conversations, previewStrings)
+            MessageRepository.replaceDmConversations(
+                conversations,
+                MessageCacheStore.listPreviewStrings,
+            )
         }
     }
 

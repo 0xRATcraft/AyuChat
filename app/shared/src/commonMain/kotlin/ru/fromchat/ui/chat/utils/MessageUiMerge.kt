@@ -5,6 +5,44 @@ import ru.fromchat.api.local.cache.DecryptedImageCache
 import ru.fromchat.api.local.db.aspectRatioFromDimensionPair
 import ru.fromchat.api.local.messages.sortMessagesForChatDisplay
 import ru.fromchat.api.schema.messages.Message
+import ru.fromchat.api.schema.messages.dm.DmEnvelope
+
+internal fun resolveDmReplyToId(
+    envelope: DmEnvelope?,
+    parsedReplyToId: Int?,
+): Int? = envelope?.replyToId?.takeIf { it > 0 }
+    ?: parsedReplyToId?.takeIf { it > 0 }
+
+internal fun resolvePublicReplyToId(message: Message): Int? =
+    message.replyToId?.takeIf { it > 0 }
+        ?: message.reply_to?.id?.takeIf { it > 0 }
+
+/** Resolves [Message.reply_to] from in-chat siblings when the payload is missing or stub-only. */
+internal fun attachPublicReplyReferences(
+    messages: List<Message>,
+    parsedReplyIds: Map<Int, Int> = emptyMap(),
+): List<Message> {
+    val byId = messages.associateBy { it.id }
+    return messages.map { msg ->
+        val replyId = parsedReplyIds[msg.id] ?: resolvePublicReplyToId(msg) ?: return@map msg
+        val nested = msg.reply_to
+        if (nested != null && nested.content.isNotBlank()) return@map msg
+        byId[replyId]?.let { msg.copy(reply_to = it, replyToId = replyId) } ?: msg
+    }
+}
+
+/** Resolves [Message.reply_to] from envelope metadata and/or parsed reply ids. */
+internal fun attachDmReplyReferences(
+    messages: List<Message>,
+    parsedReplyIds: Map<Int, Int> = emptyMap(),
+): List<Message> {
+    val byId = messages.associateBy { it.id }
+    return messages.map { msg ->
+        if (msg.reply_to != null) return@map msg
+        val replyId = resolveDmReplyToId(msg.dmEnvelope, parsedReplyIds[msg.id]) ?: return@map msg
+        byId[replyId]?.let { msg.copy(reply_to = it) } ?: msg
+    }
+}
 
 /**
  * SQLDelight rows omit optimistic attachment fields; merge DB snapshot with in-memory UI state.
@@ -70,6 +108,7 @@ internal fun mergeMessageUiFields(db: Message, panel: Message?): Message {
         fileDimensions = db.fileDimensions ?: panel.fileDimensions,
         content = db.content.ifBlank { panel.content },
         isContentCorrupted = panel.isContentCorrupted || db.isContentCorrupted,
+        replyToId = db.replyToId ?: panel.replyToId,
         reply_to = db.reply_to ?: panel.reply_to,
     )
 }

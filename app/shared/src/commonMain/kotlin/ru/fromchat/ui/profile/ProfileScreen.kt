@@ -160,6 +160,7 @@ import ru.fromchat.ui.LocalNavController
 import ru.fromchat.ui.chat.Avatar
 import ru.fromchat.ui.chat.TypingIndicator
 import ru.fromchat.ui.components.FromChatSnackbarHost
+import ru.fromchat.ui.components.ScreenSurface
 import ru.fromchat.ui.components.ShimmerBox
 import ru.fromchat.ui.components.Text
 import ru.fromchat.ui.components.showReplacingSnackbar
@@ -296,6 +297,17 @@ fun ProfileScreen(
     }
 
     val latestUi by rememberUpdatedState(state)
+    val profileCacheRevision by ProfileCache.revision.collectAsState()
+    val isOwnProfileLookup = targetUserId == null && targetUsername == null
+
+    LaunchedEffect(profileCacheRevision) {
+        if (!isOwnProfileLookup) return@LaunchedEffect
+        ownUserId?.let { ProfileCache.get(it) }?.let { cached ->
+            if (hasDisplayableProfile(cached, initialDisplayName, ownUserId)) {
+                state = latestUi.copy(profile = cached, isLoading = false, error = null)
+            }
+        }
+    }
 
     val backStackEntry = navController.currentBackStackEntry
     LaunchedEffect(backStackEntry, lookupKey) {
@@ -307,6 +319,7 @@ fun ProfileScreen(
             try {
                 val refreshed = ApiClient.getOwnProfile()
                 ProfileCache.put(refreshed)
+                ApiClient.applyOwnProfile(refreshed)
                 state = latestUi.copy(profile = refreshed, error = null)
             } catch (_: Exception) {
                 ownUserId?.let { ProfileCache.get(it) }?.let { cached ->
@@ -367,6 +380,9 @@ fun ProfileScreen(
                     )
 
                     ProfileCache.put(profile)
+                    if (targetUserId == null && targetUsername == null) {
+                        ApiClient.applyOwnProfile(profile)
+                    }
                     state = latestUi.copy(profile = profile, isLoading = false, error = null)
                     loadedSuccessfully = true
                     true
@@ -604,21 +620,18 @@ fun ProfileScreen(
         showDetailsUsername || showDetailsMemberSince || showDetailsBio || showDetailsVerify
         )
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.navigationBars),
-    ) {
+    ScreenSurface(modifier = modifier) {
         val useSharedAvatar = sharedTransitionScope != null &&
             animatedVisibilityScope != null &&
             sharedAvatarKey != null
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .hazeSource(hazeState),
-        ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .hazeSource(hazeState),
+            ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -764,10 +777,12 @@ fun ProfileScreen(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp)
                 .fillMaxWidth(),
         )
+        }
     }
 }
 @OptIn(ExperimentalMaterial3Api::class)
@@ -890,21 +905,18 @@ fun PublicChatProfileScreen(
         animatedVisibilityScope != null &&
         sharedAvatarKey != null
 
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.navigationBars),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(MaterialTheme.colorScheme.background)
-                .hazeSource(hazeState),
-        ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
+    ScreenSurface(modifier = modifier) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background)
+                    .hazeSource(hazeState),
             ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
                 when {
                     useSharedAvatar && displayName.isNotBlank() -> {
                         item {
@@ -974,10 +986,12 @@ fun PublicChatProfileScreen(
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.navigationBars)
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp)
                 .fillMaxWidth(),
         )
+        }
     }
 }
 

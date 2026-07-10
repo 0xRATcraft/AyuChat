@@ -8,10 +8,13 @@ import ru.fromchat.api.crypto.decryptEnvelope
 import ru.fromchat.api.local.db.parseDmMessageContent
 import ru.fromchat.api.local.db.store.MessageRepository
 import ru.fromchat.api.local.db.store.ProfileCache
+import ru.fromchat.api.local.db.store.visibleDisplayName
 import ru.fromchat.api.local.messages.ActiveDmChatTracker
 import ru.fromchat.api.schema.messages.Message
 import ru.fromchat.api.schema.messages.dm.DmEnvelope
 import ru.fromchat.api.schema.websocket.types.DmDeletedData
+import ru.fromchat.ui.chat.utils.attachDmReplyReferences
+import ru.fromchat.ui.chat.utils.resolveDmReplyToId
 
 object DmInboundMessageProcessor {
   suspend fun processNew(element: JsonElement) {
@@ -32,18 +35,28 @@ object DmInboundMessageProcessor {
       val outcome = runCatching { decryptEnvelope(envelope, currentUserId) }.getOrNull()
       val plaintext = outcome ?: ""
       val isCorrupted = outcome == null
+      val dec = parseDmMessageContent(plaintext)
       val message = buildMessage(envelope, plaintext, isCorrupted, currentUserId, otherUserId)
+      val existing = runCatching { MessageRepository.loadDmMessages(otherUserId) }
+        .getOrDefault(emptyList())
+      val replyId = resolveDmReplyToId(envelope, dec.replyToId)
+        ?: existing.firstOrNull { it.client_message_id == envelope.clientMessageId?.trim() }
+          ?.reply_to?.id?.takeIf { it > 0 }
+      val hydrated = attachDmReplyReferences(
+        existing.filter { it.id != message.id } + message,
+        replyId?.let { mapOf(message.id to it) } ?: emptyMap(),
+      ).last()
 
       if (envelope.senderId == currentUserId) {
         val clientId = envelope.clientMessageId?.trim().orEmpty()
         if (clientId.isNotEmpty()) {
-          MessageRepository.confirmDmMessage(otherUserId, clientId, message)
+          MessageRepository.confirmDmMessage(otherUserId, clientId, hydrated)
         } else {
-          MessageRepository.upsertDmMessage(otherUserId, message)
+          MessageRepository.upsertDmMessage(otherUserId, hydrated)
         }
       } else {
         val isRead = ActiveDmChatTracker.isActive(otherUserId)
-        val inbound = message.copy(is_read = isRead)
+        val inbound = hydrated.copy(is_read = isRead)
         MessageRepository.upsertDmMessage(otherUserId, inbound)
       }
     }
@@ -82,26 +95,32 @@ object DmInboundMessageProcessor {
     }
 
     withContext(Dispatchers.Default) {
-      val existing = runCatching { MessageRepository.loadDmMessages(otherUserId) }
+      val existingMessages = runCatching { MessageRepository.loadDmMessages(otherUserId) }
         .getOrDefault(emptyList())
-        .find { it.id == envelope.id }
+      val existing = existingMessages.find { it.id == envelope.id }
       val outcome = runCatching { decryptEnvelope(envelope, currentUserId) }.getOrNull()
       val plaintext = outcome ?: ""
       val isCorrupted = outcome == null
       val dec = parseDmMessageContent(plaintext)
-      val updated = (existing ?: buildMessage(envelope, plaintext, isCorrupted, currentUserId, otherUserId))
-        .copy(
-          content = dec.text,
-          is_edited = true,
-          files = envelope.files,
-          dmEnvelope = envelope,
-          fileThumbnails = dec.fileThumbnails ?: existing?.fileThumbnails,
-          fileAspectRatios = dec.fileAspectRatios ?: existing?.fileAspectRatios,
-          fileSizes = dec.fileSizes ?: existing?.fileSizes,
-          fileDimensions = dec.fileDimensions ?: existing?.fileDimensions,
-          isContentCorrupted = isCorrupted,
-        )
-      MessageRepository.upsertDmMessage(otherUserId, updated)
+      val base = existing ?: buildMessage(envelope, plaintext, isCorrupted, currentUserId, otherUserId)
+      val updated = base.copy(
+        content = dec.text,
+        is_edited = true,
+        files = envelope.files,
+        dmEnvelope = envelope,
+        fileThumbnails = dec.fileThumbnails ?: existing?.fileThumbnails,
+        fileAspectRatios = dec.fileAspectRatios ?: existing?.fileAspectRatios,
+        fileSizes = dec.fileSizes ?: existing?.fileSizes,
+        fileDimensions = dec.fileDimensions ?: existing?.fileDimensions,
+        isContentCorrupted = isCorrupted,
+      )
+      val replyId = resolveDmReplyToId(envelope, dec.replyToId)
+        ?: existing?.reply_to?.id?.takeIf { it > 0 }
+      val hydrated = attachDmReplyReferences(
+        existingMessages.filter { it.id != updated.id } + updated,
+        replyId?.let { mapOf(updated.id to it) } ?: emptyMap(),
+      ).last()
+      MessageRepository.upsertDmMessage(otherUserId, hydrated)
     }
   }
 
@@ -113,14 +132,18 @@ object DmInboundMessageProcessor {
     otherUserId: Int,
   ): Message {
     val dec = parseDmMessageContent(plaintext)
-    val cached = ProfileCache.get(otherUserId)
+    if (envelope.senderId != currentUserId) {
+      envelope.senderUsername?.trim()?.takeIf { it.isNotEmpty() }?.let { senderName ->
+        ProfileCache.mergePreview(id = envelope.senderId, username = senderName)
+      }
+    }
+    val senderProfile = ProfileCache.get(envelope.senderId)
     val username = if (envelope.senderId == currentUserId) {
       "You"
     } else {
-      cached?.displayName?.takeIf { it.isNotBlank() }
-        ?: cached?.username?.takeIf { it.isNotBlank() }
+      senderProfile?.visibleDisplayName(currentUserId)?.takeIf { it.isNotBlank() }
         ?: envelope.senderUsername?.takeIf { it.isNotBlank() }
-        ?: "User $otherUserId"
+        ?: ""
     }
     return Message(
       id = envelope.id,

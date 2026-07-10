@@ -51,6 +51,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -86,6 +87,7 @@ import ru.fromchat.Res
 import ru.fromchat.action_delete
 import ru.fromchat.action_mark_read
 import ru.fromchat.api.ApiClient
+import ru.fromchat.api.ChatListSync
 import ru.fromchat.api.calls.CallStore
 import ru.fromchat.api.local.WebSocketManager
 import ru.fromchat.api.local.cache.CacheContext
@@ -289,6 +291,7 @@ fun ChatsTab(
     val connectionStatus by ConnectionStateStore.status.collectAsState()
     val online by NetworkConnectivity.isOnline.collectAsState(initial = true)
     val activeInstanceId by CacheContext.activeInstanceId.collectAsState()
+    val profileCacheRevision by ProfileCache.revision.collectAsState()
     var dmConversations by remember(activeInstanceId) {
         val cached = if (activeInstanceId.isBlank()) {
             emptyList()
@@ -334,8 +337,11 @@ fun ChatsTab(
     var showSuspendedSupportSheet by remember { mutableStateOf(false) }
     val defaultLastMessage = stringResource(Res.string.chat_last_mesaage)
 
-    LaunchedEffect(previewStrings.imageOnly, previewStrings.attachmentOnly) {
+    LaunchedEffect(previewStrings.imageOnly, previewStrings.attachmentOnly, activeInstanceId) {
         MessageCacheStore.listPreviewStrings = previewStrings
+        if (activeInstanceId.isNotBlank()) {
+            runCatching { ChatListSync.syncFromNetwork() }
+        }
     }
 
     SideEffect {
@@ -716,6 +722,7 @@ fun ChatsTab(
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     )
                 } else {
+                key(profileCacheRevision) {
                 ChatConversationsList(
                     listState = tabListState,
                     listFilter = ChatListFilter.Active,
@@ -808,6 +815,7 @@ fun ChatsTab(
                         }
                     },
                 )
+                }
                 }
             }
         }

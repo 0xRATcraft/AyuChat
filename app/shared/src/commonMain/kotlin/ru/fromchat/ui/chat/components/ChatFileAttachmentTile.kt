@@ -18,7 +18,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -41,6 +40,7 @@ import ru.fromchat.attachment_upload_failed
 import ru.fromchat.attachment_upload_failed_too_large
 import ru.fromchat.cd_attachment_upload_retry
 import ru.fromchat.ui.chat.ExpressiveFileAttachmentRow
+import ru.fromchat.ui.chat.messageBubbleContentColor
 import ru.fromchat.ui.chat.utils.showAttachmentOpenFailed
 import ru.fromchat.ui.components.Text
 
@@ -228,7 +228,7 @@ fun ChatFileAttachmentTile(
     }
     val retryText = stringResource(Res.string.attachment_retry)
     val retryCd = stringResource(Res.string.cd_attachment_upload_retry)
-    val headlineColor = if (isAuthor) Color.White else MaterialTheme.colorScheme.onSurface
+    val headlineColor = messageBubbleContentColor(isAuthor)
 
     Box(modifier = modifier.widthIn(max = 280.dp)) {
         ExpressiveFileAttachmentRow(

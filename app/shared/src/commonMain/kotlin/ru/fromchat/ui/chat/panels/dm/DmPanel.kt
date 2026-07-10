@@ -43,10 +43,12 @@ import ru.fromchat.api.local.cache.DecryptedImageCache
 import ru.fromchat.ui.chat.utils.DmTypingHandler
 import ru.fromchat.api.local.download.DownloadedFileRegistry
 import ru.fromchat.ui.chat.utils.TypingHandler
+import ru.fromchat.ui.chat.utils.attachDmReplyReferences
 import ru.fromchat.ui.chat.utils.dedupeMessagesByClientId
 import ru.fromchat.ui.chat.utils.dropSupersededOptimisticMessages
 import ru.fromchat.ui.chat.utils.imageAspectRatioForMessage
 import ru.fromchat.ui.chat.utils.preserveReplyToFromExisting
+import ru.fromchat.ui.chat.utils.resolveDmReplyToId
 import ru.fromchat.ui.chat.isImageFilename
 import ru.fromchat.api.local.send.seedOutboundFileAsDownloaded
 
@@ -246,21 +248,18 @@ class DmPanel(
                 val priorMessages = _state.messages
                 val optimisticSnapshot = snapshotPendingOptimisticMessages()
                 val decryptedForLog = mutableListOf<Pair<Int, String>>()
+                val parsedReplyIds = mutableMapOf<Int, Int>()
                 val messages = response.messages.map { envelope ->
                     val outcome = decryptDmEnvelopeForUi(envelope)
                     decryptedForLog.add(envelope.id to outcome.plaintext)
+                    val dec = parseDmMessageContent(outcome.plaintext)
+                    resolveDmReplyToId(envelope, dec.replyToId)?.let { parsedReplyIds[envelope.id] = it }
                     createMessage(envelope, outcome.plaintext, outcome.isCorrupted)
                 }
                 decryptedForLog.takeLast(5).forEachIndexed { i, (id, json) ->
                     Logger.d("DmPanel", "Decrypted message #${i + 1} (id=$id): $json")
                 }
-                val replyToMap = messages.associateBy { it.id }
-                val messagesWithReplies = messages.map { msg ->
-                    val envelope = response.messages.find { it.id == msg.id }
-                    if (envelope?.replyToId != null) {
-                        msg.copy(reply_to = replyToMap[envelope.replyToId])
-                    } else msg
-                }
+                val messagesWithReplies = attachDmReplyReferences(messages, parsedReplyIds)
                 val mergedForUi = preserveReplyToFromExisting(
                     priorMessages + optimisticSnapshot,
                     messagesWithReplies,
@@ -368,11 +367,12 @@ class DmPanel(
                 if (envelope.senderId == currentUserId) {
                     mergeConfirmedOwnMessage(envelope, outcome.plaintext, outcome.isCorrupted)
                 } else {
+                    val dec = parseDmMessageContent(outcome.plaintext)
                     val incoming = createMessage(envelope, outcome.plaintext, outcome.isCorrupted)
-                    val replyTo = envelope.replyToId?.let { replyId ->
-                        _state.messages.find { it.id == replyId }
-                    }
-                    val withReply = if (replyTo != null) incoming.copy(reply_to = replyTo) else incoming
+                    val replyId = resolveDmReplyToId(envelope, dec.replyToId)
+                    val context = _state.messages + incoming
+                    val withReply = attachDmReplyReferences(context, replyId?.let { mapOf(incoming.id to it) } ?: emptyMap())
+                        .last()
                     if (ActiveDmChatTracker.isActive(otherUserId)) {
                         withContext(Dispatchers.Default) {
                             MessageCacheStore.upsertDmMessage(otherUserId, withReply)
@@ -446,16 +446,20 @@ class DmPanel(
                 pendingFileAspectRatio = aspect,
                 fileAspectRatios = confirmed.fileAspectRatios ?: aspect?.let { listOf(it) },
                 fileDimensions = confirmed.fileDimensions ?: stateSourceBeforeMerge?.fileDimensions,
-                reply_to = envelope.replyToId?.let { replyId ->
-                    _state.messages.find { it.id == replyId }
-                } ?: stateSourceBeforeMerge?.reply_to,
             )
-            val mergedForPersistence = merged.copy(pendingFilename = null)
+            val dec = parseDmMessageContent(plaintext)
+            val replyId = resolveDmReplyToId(envelope, dec.replyToId)
+                ?: stateSourceBeforeMerge?.reply_to?.id?.takeIf { it > 0 }
+            val mergedWithReply = attachDmReplyReferences(
+                _state.messages.filter { it.id != envelope.id && it.client_message_id != cid } + merged,
+                replyId?.let { mapOf(merged.id to it) } ?: emptyMap(),
+            ).last()
+            val mergedForPersistence = mergedWithReply.copy(pendingFilename = null)
             AttachmentMediaLog.persist(
                 "merge_confirmed",
                 "msgId" to envelope.id,
                 "clientId" to cid,
-                "localPreview" to (merged.pendingFileUri?.take(64) ?: "null"),
+                "localPreview" to (mergedWithReply.pendingFileUri?.take(64) ?: "null"),
                 "aspect" to aspect,
             )
 
@@ -471,7 +475,7 @@ class DmPanel(
                         optimisticIndex >= 0 -> {
                             currentState.messages.mapIndexedNotNull { index, message ->
                                 when {
-                                    index == optimisticIndex -> merged
+                                    index == optimisticIndex -> mergedWithReply
                                     message.id == envelope.id -> null
                                     else -> message
                                 }
@@ -479,10 +483,10 @@ class DmPanel(
                         }
                         existingRealIndex >= 0 -> {
                             currentState.messages.mapIndexed { index, message ->
-                                if (index == existingRealIndex) merged else message
+                                if (index == existingRealIndex) mergedWithReply else message
                             }
                         }
-                        else -> currentState.messages + merged
+                        else -> currentState.messages + mergedWithReply
                     }
                     val deduped = dedupeMessagesByClientId(newMessages)
                     currentState.copy(messages = deduped)
@@ -540,7 +544,7 @@ class DmPanel(
         val username = if (envelope.senderId == currentUserId) {
             "You"
         } else {
-            otherDisplayName.ifBlank { "User $otherUserId" }
+            otherDisplayName
         }
         return Message(
             id = envelope.id,

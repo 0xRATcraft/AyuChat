@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Color
 import ru.fromchat.config.Settings
 import ru.fromchat.ui.components.googleSansMaterialTypography
 
@@ -27,6 +28,9 @@ var theme by mutableStateOf(
 
 @Composable
 expect fun getColorScheme(darkTheme: Boolean, dynamicColor: Boolean): ColorScheme
+
+@Composable
+expect fun ApplySystemBarTheme(darkTheme: Boolean, surfaceColor: Color)
 
 @Composable
 fun FromChatTheme(
@@ -75,6 +79,8 @@ fun FromChatTheme(
     val surfaceContainer by animateColorAsState(colorScheme.surfaceContainer)
     val surfaceContainerHigh by animateColorAsState(colorScheme.surfaceContainerHigh)
     val surfaceContainerHighest by animateColorAsState(colorScheme.surfaceContainerHighest)
+
+    ApplySystemBarTheme(darkTheme = darkTheme, surfaceColor = surface)
 
     colorScheme = colorScheme.copy(
         primary = primary,

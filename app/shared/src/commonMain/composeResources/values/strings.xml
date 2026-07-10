@@ -121,7 +121,6 @@
 
     <!-- Messages -->
     <string name="message_sender_you">You</string>
-    <string name="user_fallback">Person %1$d</string>
     <string name="deleted_account">Deleted account</string>
     <string name="account_suspended">Account suspended</string>
     <string name="action_delete_chat">Delete chat</string>

@@ -67,6 +67,7 @@ import ru.fromchat.legal_document_cached_banner
 import ru.fromchat.legal_document_load_error
 import ru.fromchat.ui.chat.rememberChatSurfaceContainerHazeStyle
 import ru.fromchat.ui.components.ActionButton
+import ru.fromchat.ui.components.ScreenSurface
 import ru.fromchat.ui.components.Text
 
 private data class PendingDocument(
@@ -108,6 +109,7 @@ fun DocumentScreen(
 
     ToggleNavScrimEffect()
 
+    ScreenSurface {
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         containerColor = Color.Transparent,
@@ -273,6 +275,7 @@ fun DocumentScreen(
                         )
                     }
                 }
+                }
             }
         }
     }
@@ -358,6 +361,6 @@ private fun DocumentContent(
                 }
             }
         }
-        }
+    }
     }
 }

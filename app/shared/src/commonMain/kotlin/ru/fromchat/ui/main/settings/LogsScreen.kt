@@ -15,6 +15,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -197,6 +198,7 @@ import ru.fromchat.ui.LocalNavController
 import ru.fromchat.ui.components.BackHandler
 import ru.fromchat.ui.components.ExpressiveIconFrame
 import ru.fromchat.ui.components.PredictiveBackHandler
+import ru.fromchat.ui.components.ScreenSurface
 import ru.fromchat.ui.components.Text
 import ru.fromchat.ui.main.chats.ChatSelectionTransitionSpring
 import ru.fromchat.ui.main.chats.SelectionCheckmarkSlot
@@ -719,6 +721,7 @@ fun LogsScreen() {
         ToggleNavScrimEffect()
     }
 
+    ScreenSurface {
     Scaffold(
         modifier = Modifier
             .fillMaxSize()
@@ -752,9 +755,11 @@ fun LogsScreen() {
         topBar = {
             Box {
                 TopAppBar(
-                    modifier = Modifier.graphicsLayer {
-                        alpha = (1f - selectionProgress) * (1f - searchProgress)
-                    },
+                    modifier = Modifier
+                        .graphicsLayer {
+                            alpha = (1f - selectionProgress) * (1f - searchProgress)
+                        }
+                        .background(MaterialTheme.colorScheme.surfaceContainer),
                     navigationIcon = {
                         IconButton(
                             onClick = { navController.navigateUp() },
@@ -976,12 +981,17 @@ fun LogsScreen() {
             }
         },
     ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .background(MaterialTheme.colorScheme.background),
+        ) {
         when {
             displayEntries.isEmpty() -> {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .then(if (searchMode) Modifier.imePadding() else Modifier),
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -998,7 +1008,6 @@ fun LogsScreen() {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(innerPadding)
                         .imePadding(),
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -1052,13 +1061,14 @@ fun LogsScreen() {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
                     .then(if (searchMode) Modifier.imePadding() else Modifier),
             ) {
                 listContent()
             }
             }
         }
+        }
+    }
     }
 }
 

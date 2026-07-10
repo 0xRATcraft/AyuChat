@@ -47,5 +47,7 @@ data class Message(
     /** Image dimensions (width, height) for image files (by index); from decrypted message JSON. */
     @Transient val fileDimensions: List<Pair<Int, Int>>? = null,
     /** True when DM plaintext could not be decrypted and [content] shows the corrupted placeholder. */
-    @Transient val isContentCorrupted: Boolean = false
+    @Transient val isContentCorrupted: Boolean = false,
+    /** Reply target id from local DB when nested [reply_to] is not hydrated yet. */
+    @Transient val replyToId: Int? = null,
 )

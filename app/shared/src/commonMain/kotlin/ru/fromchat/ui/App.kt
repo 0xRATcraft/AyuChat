@@ -102,6 +102,7 @@ import ru.fromchat.ui.profile.EditProfileFocusField
 import ru.fromchat.ui.profile.EditProfileScreen
 import ru.fromchat.ui.profile.ProfileRoutes
 import ru.fromchat.ui.profile.ProfileScreen
+import ru.fromchat.ui.components.ScreenSurface
 import ru.fromchat.utils.NetworkConnectivity
 
 val LocalNavController = compositionLocalOf<NavController> { error("NavController not provided") }
@@ -401,8 +402,9 @@ fun App(
                 LocalSystemBarsVisibility provides rememberSystemBarsController()
             ) {
                 if (startDestination != null) {
-                    Box(Modifier.fillMaxSize()) {
-                        NavHost(
+                    ScreenSurface {
+                        Box(Modifier.fillMaxSize()) {
+                            NavHost(
                             navController = navController,
                             startDestination = startDestination!!,
                             enterTransition = { rootNavEnterTransition() },
@@ -691,6 +693,7 @@ fun App(
                         }
 
                         CallOverlay(Modifier.fillMaxSize())
+                        }
                     }
                 }
             }

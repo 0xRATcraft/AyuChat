@@ -82,6 +82,7 @@ import ru.fromchat.ui.components.DisabledBringIntoViewSpec
 import ru.fromchat.ui.components.FromChatSnackbarHost
 import ru.fromchat.ui.components.HazeActionButton
 import ru.fromchat.ui.components.LazyListFocusScrollEffect
+import ru.fromchat.ui.components.ScreenSurface
 import ru.fromchat.ui.components.Text
 import ru.fromchat.ui.components.expressiveStepFieldColors
 import ru.fromchat.ui.components.rememberLazyListFocusScrollState
@@ -320,6 +321,7 @@ fun EditProfileScreen(
         }
     }
 
+    ScreenSurface {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets.navigationBars,
@@ -498,5 +500,6 @@ fun EditProfileScreen(
             }
             }
         }
+    }
     }
 }

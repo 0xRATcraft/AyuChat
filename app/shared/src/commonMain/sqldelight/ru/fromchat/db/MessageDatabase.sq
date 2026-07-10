@@ -284,7 +284,7 @@ WHERE instanceId = ? AND id = ?;
 
 deleteEmptyDmConversations:
 DELETE FROM conversation
-WHERE instanceId = ? AND type = 'dm' AND id NOT IN (
+WHERE instanceId = ? AND type = 'dm' AND lastMessageId IS NULL AND id NOT IN (
     SELECT DISTINCT conversationId FROM message
     WHERE instanceId = ? AND deletedFlag = 0
 );

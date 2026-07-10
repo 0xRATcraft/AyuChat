@@ -41,8 +41,10 @@ import ru.fromchat.api.crypto.decryptEnvelope
 import ru.fromchat.api.local.cache.DecryptedFileCache
 import ru.fromchat.api.local.cache.DecryptedImageCache
 import ru.fromchat.api.local.download.DownloadedFileRegistry
+import ru.fromchat.ui.chat.utils.attachPublicReplyReferences
 import ru.fromchat.ui.chat.utils.dedupeMessagesByClientId
 import ru.fromchat.ui.chat.utils.dropSupersededOptimisticMessages
+import kotlin.concurrent.Volatile
 import ru.fromchat.db.Message as DbMessage
 
 data class CachedConversation(
@@ -78,7 +80,7 @@ object MessageCacheStore {
             .asFlow()
             .mapToList(Dispatchers.Default)
             .map { rows ->
-                val raw = hydrateReplyReferences(rows)
+                val raw = hydrateReplyReferencesFromRows(rows)
                 val withoutSuperseded = dropSupersededOptimisticMessages(raw, ApiClient.user?.id)
                 sortMessagesForChatDisplay(
                     validatedOrEmpty(
@@ -99,11 +101,10 @@ object MessageCacheStore {
     fun loadRecentPublicMessagesImmediate(instanceId: String, limit: Long = 128): List<Message> {
         if (instanceId.isBlank()) return emptyList()
         val convId = conversationIdForPublic()
-        val raw = hydrateReplyReferences(
-            db.messageDatabaseQueries
-                .selectRecentMessagesByConversation(instanceId, convId, limit)
-                .executeAsList(),
-        ).reversed()
+        val rows = db.messageDatabaseQueries
+            .selectRecentMessagesByConversation(instanceId, convId, limit)
+            .executeAsList()
+        val raw = hydrateReplyReferencesFromRows(rows).reversed()
         val withoutSuperseded = dropSupersededOptimisticMessages(raw, ApiClient.user?.id)
         return ProfileCache.enrichPublicMessagesForDisplay(
             sortMessagesForChatDisplay(
@@ -338,9 +339,9 @@ object MessageCacheStore {
 
     suspend fun replaceDmConversations(
         conversations: List<DmConversation>,
-        previewStrings: ChatListPreviewStrings,
+        previewStrings: ChatListPreviewStrings? = listPreviewStrings,
     ) {
-        listPreviewStrings = previewStrings
+        previewStrings?.let { listPreviewStrings = it }
         val iid = instanceId()
         val currentUserId = ApiClient.user?.id
         withContext(Dispatchers.Default) {
@@ -408,10 +409,14 @@ object MessageCacheStore {
     private suspend fun buildDmListPreview(
         envelope: DmEnvelope,
         currentUserId: Int?,
-        previewStrings: ChatListPreviewStrings,
+        previewStrings: ChatListPreviewStrings?,
     ): String? {
         val decrypted = runCatching { decryptEnvelope(envelope, currentUserId) }.getOrNull()
-        val previewSource = buildChatListPreviewFromEnvelope(envelope, decrypted, previewStrings)
+        val previewSource = if (previewStrings != null) {
+            buildChatListPreviewFromEnvelope(envelope, decrypted, previewStrings)
+        } else {
+            decrypted?.trim()?.takeIf { it.isNotEmpty() }
+        }
         return previewSource?.let { truncateDmListPreview(it) }?.takeIf { it.isNotEmpty() }
     }
 
@@ -448,11 +453,25 @@ object MessageCacheStore {
             val existing = db.messageDatabaseQueries
                 .selectConversationById(iid, convId)
                 .executeAsOneOrNull()
-            if (existing != null) return@withContext
-            val label = displayName?.trim()?.takeIf { it.isNotEmpty() }
-                ?: ProfileCache.get(otherUserId)?.displayName?.trim()?.takeIf { it.isNotEmpty() }
-                ?: ProfileCache.get(otherUserId)?.username?.trim()?.takeIf { it.isNotEmpty() }
-                ?: ""
+            val label = resolveDmConversationDisplayLabel(otherUserId, displayName)
+            if (existing != null) {
+                if (label.isNotEmpty() && existing.displayName.isNullOrBlank()) {
+                    db.messageDatabaseQueries.upsertConversation(
+                        instanceId = iid,
+                        id = existing.id,
+                        type = existing.type,
+                        otherUserId = existing.otherUserId,
+                        displayName = label,
+                        lastMessageId = existing.lastMessageId,
+                        lastMessagePreview = existing.lastMessagePreview,
+                        unreadCount = existing.unreadCount,
+                        updatedAt = existing.updatedAt,
+                        archived = existing.archived,
+                    )
+                    DmConversationListNotifier.notifyChanged()
+                }
+                return@withContext
+            }
             db.messageDatabaseQueries.upsertConversation(
                 instanceId = iid,
                 id = convId,
@@ -467,6 +486,11 @@ object MessageCacheStore {
             )
         }
     }
+
+    private fun resolveDmConversationDisplayLabel(otherUserId: Int, displayName: String?): String =
+        displayName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: ProfileCache.get(otherUserId)?.displayName?.trim()?.takeIf { it.isNotEmpty() }
+            ?: ProfileCache.get(otherUserId)?.visibleUsername(ApiClient.user?.id).orEmpty()
 
     suspend fun markDmConversationReadLocally(otherUserId: Int, upToEnvelopeId: Int? = null) {
         val iid = instanceId()
@@ -835,6 +859,11 @@ object MessageCacheStore {
         val storedContent = encodePersistedDmMessage(confirmed)
         withContext(Dispatchers.Default) {
             db.messageDatabaseQueries.transaction {
+                val existingReplyToId = db.messageDatabaseQueries
+                    .selectMessagesByConversation(iid, conversationId)
+                    .executeAsList()
+                    .firstOrNull { it.clientMessageId == clientMessageId }
+                    ?.replyToId
                 db.messageDatabaseQueries.deleteMessageByClientMessageId(iid, conversationId, clientMessageId)
                 db.messageDatabaseQueries.upsertMessage(
                     instanceId = iid,
@@ -845,7 +874,7 @@ object MessageCacheStore {
                     timestamp = confirmed.timestamp,
                     isRead = if (confirmed.is_read) 1L else 0L,
                     isEdited = if (confirmed.is_edited) 1L else 0L,
-                    replyToId = resolveReplyToIdForPersistence(confirmed),
+                    replyToId = resolveReplyToIdForPersistence(confirmed, existingReplyToId),
                     clientMessageId = confirmed.client_message_id,
                     deletedFlag = 0L,
                     sendStatus = "sent"
@@ -865,7 +894,7 @@ object MessageCacheStore {
             val rows = db.messageDatabaseQueries
                 .selectMessagesByConversation(iid, conversationId)
                 .executeAsList()
-            val raw = hydrateReplyReferences(rows)
+            val raw = hydrateReplyReferencesFromRows(rows)
             val withoutSuperseded = dropSupersededOptimisticMessages(raw, ApiClient.user?.id)
             purgeSupersededPendingRows(iid, conversationId, raw, withoutSuperseded)
             sortMessagesForChatDisplay(
@@ -885,7 +914,7 @@ object MessageCacheStore {
             val rows = db.messageDatabaseQueries
                 .selectRecentMessagesByConversation(iid, conversationId, limit)
                 .executeAsList()
-            hydrateReplyReferences(rows).reversed()
+            hydrateReplyReferencesFromRows(rows).reversed()
         }
     }
 
@@ -991,13 +1020,23 @@ object MessageCacheStore {
         }
     }
 
+    private fun hydrateReplyReferencesFromRows(rows: List<DbMessage>): List<Message> {
+        val replyIds = rows.mapNotNull { row ->
+            row.replyToId?.toInt()?.takeIf { it > 0 }?.let { row.id.toInt() to it }
+        }.toMap()
+        return attachPublicReplyReferences(hydrateReplyReferences(rows), replyIds)
+    }
+
     private fun hydrateReplyReferences(rows: List<DbMessage>): List<Message> {
         val messages = rows.map { it.toAppMessage() }
         val byId = messages.associateBy { it.id }
         return rows.zip(messages).map { (row, message) ->
             val replyId = row.replyToId?.toInt() ?: message.dmEnvelope?.replyToId
             if (replyId != null) {
-                message.copy(reply_to = byId[replyId])
+                message.copy(
+                    replyToId = replyId,
+                    reply_to = byId[replyId] ?: message.reply_to,
+                )
             } else {
                 message
             }
@@ -1015,6 +1054,7 @@ object MessageCacheStore {
 
     private fun resolveReplyToIdForPersistence(msg: Message, existingReplyToId: Long? = null): Long? {
         return msg.reply_to?.id?.toLong()
+            ?: msg.replyToId?.toLong()
             ?: msg.dmEnvelope?.replyToId?.toLong()
             ?: existingReplyToId?.takeIf { it > 0L }
     }

@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import ru.fromchat.api.local.db.store.ProfileCache
 
 /**
  * Network work that must not block cold start or the first frame.
@@ -20,7 +21,8 @@ object DeferredStartupNetwork {
             if (ApiClient.token.isNullOrEmpty()) return@launch
             runCatching {
                 val profile = ApiClient.getOwnProfile()
-                ApiClient.syncSuspensionStateFromProfile(profile)
+                ApiClient.applyOwnProfile(profile)
+                ProfileCache.put(profile)
             }
             runCatching { syncPushTokenAfterStartup() }
         }

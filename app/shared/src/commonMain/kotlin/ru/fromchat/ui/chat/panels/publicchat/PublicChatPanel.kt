@@ -31,6 +31,8 @@ import ru.fromchat.ui.chat.AvatarInfo
 import ru.fromchat.ui.chat.ChatPanel
 import ru.fromchat.ui.chat.utils.PublicChatTypingHandler
 import ru.fromchat.ui.chat.utils.TypingHandler
+import ru.fromchat.ui.chat.utils.attachPublicReplyReferences
+import ru.fromchat.ui.chat.utils.mergeDatabaseMessagesWithPanelState
 import ru.fromchat.ui.chat.utils.preserveReplyToFromExisting
 
 class PublicChatPanel(
@@ -160,23 +162,31 @@ class PublicChatPanel(
 
     private suspend fun hydrateMessagesFromLocalCache() {
         val cached = withContext(Dispatchers.Default) {
-            runCatching { MessageRepository.loadRecentPublicMessagesImmediate(limit = 128) }
+            runCatching { MessageRepository.loadPublicMessages() }
                 .getOrDefault(emptyList())
         }
-        if (cached.isEmpty()) return
+        if (cached.isEmpty() && _state.messages.isEmpty()) return
         withContext(Dispatchers.Main) {
             batchStateUpdates {
                 val shown = _state.messages
-                if (shown.isNotEmpty()) {
-                    val withReplies = preserveReplyToFromExisting(shown, cached)
-                    if (withReplies != shown) {
-                        updateState { it.copy(messages = sortMessagesForChatDisplay(withReplies)) }
+                when {
+                    shown.isEmpty() -> {
+                        if (cached.isNotEmpty()) {
+                            clearMessages()
+                            addMessages(cached)
+                        }
+                        setLoading(false)
                     }
-                    setLoading(false)
-                } else {
-                    clearMessages()
-                    addMessages(cached)
-                    setLoading(false)
+                    cached.isEmpty() -> setLoading(false)
+                    else -> {
+                        // Never replace the in-memory list with the DB snapshot alone — that
+                        // dropped paginated / ahead-of-network rows when reopening (e.g. profile).
+                        val merged = mergeDatabaseMessagesWithPanelState(shown, cached)
+                        if (merged != shown) {
+                            updateState { it.copy(messages = sortMessagesForChatDisplay(merged)) }
+                        }
+                        setLoading(false)
+                    }
                 }
             }
         }
@@ -219,10 +229,11 @@ class PublicChatPanel(
 
     private suspend fun ingestIncomingPublicMessage(newMsg: Message) {
         ProfileCache.mergePreviewFromPublicMessage(newMsg)
-        val displayMessage = ProfileCache.enrichPublicMessageForDisplay(newMsg)
+        val withReply = attachPublicReplyReferences(_state.messages + newMsg).last()
+        val displayMessage = ProfileCache.enrichPublicMessageForDisplay(withReply)
         addMessage(displayMessage)
         withContext(Dispatchers.Default) {
-            MessageCacheStore.upsertPublicMessage(newMsg)
+            MessageCacheStore.upsertPublicMessage(withReply)
         }
     }
 
@@ -364,6 +375,9 @@ class PublicChatPanel(
                     currentState.copy(
                         messages = older + currentState.messages
                     )
+                }
+                withContext(Dispatchers.Default) {
+                    MessageCacheStore.replacePublicMessages(_state.messages)
                 }
             }
             setHasMoreMessages(false) // TODO: Implement has_more from API

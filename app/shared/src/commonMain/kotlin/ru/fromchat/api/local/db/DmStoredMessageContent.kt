@@ -17,6 +17,18 @@ import ru.fromchat.api.local.cache.DecryptedImageCache
 private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
 @Serializable
+private data class DmOutboundTextEnvelope(
+    val type: String = "text",
+    val data: DmOutboundTextData,
+)
+
+@Serializable
+private data class DmOutboundTextData(
+    val content: String,
+    @SerialName("reply_to_id") val replyToId: Int? = null,
+)
+
+@Serializable
 private data class PersistedOptimisticOutboundPayload(
     @SerialName("text") val text: String,
     @SerialName("pendingFileUri") val pendingFileUri: String? = null,
@@ -40,6 +52,8 @@ private data class PersistedDmMessagePayload(
 
 data class ParsedDmMessageContent(
     val text: String,
+    /** Reply target from encrypted JSON payload (`reply_to_id`), when present. */
+    val replyToId: Int? = null,
     val envelope: DmEnvelope? = null,
     val fileThumbnails: List<String>? = null,
     val fileAspectRatios: List<Float>? = null,
@@ -51,6 +65,21 @@ data class ParsedDmMessageContent(
     val pendingFilename: String? = null,
     val uploadJobId: String? = null,
 )
+
+/**
+ * Plaintext for outbound DM encryption. Embeds [replyToId] in the Web-compatible JSON envelope
+ * so recipients can resolve reply previews without relying on API envelope metadata.
+ */
+fun buildDmOutboundPlaintext(content: String, replyToId: Int?): String {
+    val trimmed = content.trim()
+    val replyId = replyToId?.takeIf { it > 0 }
+    if (replyId == null) return trimmed
+    return json.encodeToString(
+        DmOutboundTextEnvelope(
+            data = DmOutboundTextData(content = trimmed, replyToId = replyId),
+        ),
+    )
+}
 
 /** Persists in-flight attachment fields so SQLDelight reload keeps the file row UI. */
 fun encodeOptimisticOutboundMessage(message: Message): String {
@@ -133,6 +162,17 @@ fun parseDmMessageContent(plaintext: String): ParsedDmMessageContent {
     val trimmed = plaintext.trim()
     if (trimmed.startsWith("{")) {
         val root = runCatching { json.parseToJsonElement(trimmed).jsonObject }.getOrNull()
+        if (root?.containsKey("type") == true && root["type"]?.jsonPrimitive?.content == "text") {
+            return runCatching {
+                val payload = json.decodeFromString<DmOutboundTextEnvelope>(trimmed)
+                ParsedDmMessageContent(
+                    text = payload.data.content,
+                    replyToId = payload.data.replyToId?.takeIf { it > 0 },
+                )
+            }.getOrElse {
+                ParsedDmMessageContent(text = plaintext)
+            }
+        }
         if (root?.containsKey("pendingFileUri") == true) {
             return runCatching {
                 val payload = json.decodeFromString<PersistedOptimisticOutboundPayload>(trimmed)

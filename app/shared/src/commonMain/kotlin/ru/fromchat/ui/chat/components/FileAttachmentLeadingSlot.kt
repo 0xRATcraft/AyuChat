@@ -59,13 +59,14 @@ internal fun FileAttachmentLeadingSlot(
         isDownloaded -> FileLeadingVisual.File
         else -> FileLeadingVisual.Download
     }
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
     val containerColor = if (isAuthor) {
-        Color.White.copy(alpha = 0.22f)
+        onPrimary.copy(alpha = 0.22f)
     } else {
         MaterialTheme.colorScheme.secondaryContainer
     }
     val iconOnContainer = if (isAuthor) {
-        Color.White
+        onPrimary
     } else {
         MaterialTheme.colorScheme.onSecondaryContainer
     }
@@ -83,9 +84,9 @@ internal fun FileAttachmentLeadingSlot(
                     onCancel = onCancelProgress,
                     showCloseScrim = false,
                     modifier = Modifier.fillMaxSize(),
-                    indicatorColor = if (isAuthor) Color.White else null,
+                    indicatorColor = if (isAuthor) onPrimary else null,
                     trackColorOverride = if (isAuthor) {
-                        Color.White.copy(alpha = 0.28f)
+                        onPrimary.copy(alpha = 0.28f)
                     } else {
                         null
                     },

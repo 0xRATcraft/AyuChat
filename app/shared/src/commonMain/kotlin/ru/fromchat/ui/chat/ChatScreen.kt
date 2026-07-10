@@ -754,7 +754,7 @@ fun ChatScreen(
                                 }
                             } else {
                                 scope.launch {
-                                    val replyToId = replyTo?.id
+                                    val replyToId = replyTo?.id?.takeIf { it > 0 }
                                     val recipientId = panel.getRecipientId()
                                     if (attachments.isNotEmpty() && recipientId != null) {
                                         val plaintext = text.ifBlank { "" }
@@ -842,7 +842,7 @@ fun ChatScreen(
                                             }
                                         }
                                     } else if (text.isNotBlank()) {
-                                        panel.sendMessageWithImmediateDisplay(text, replyToId)
+                                        panel.sendMessageWithImmediateDisplay(text, replyToId, replyTo)
                                     }
                                     replyTo = null
                                     haptic(HapticFeedbackEvent.MessageSent)

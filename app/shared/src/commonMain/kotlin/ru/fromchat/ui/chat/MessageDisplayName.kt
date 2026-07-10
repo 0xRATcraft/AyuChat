@@ -14,8 +14,6 @@ import ru.fromchat.ui.profile.isDeletedAccount
 import ru.fromchat.ui.profile.isDeletedAccountUsername
 import ru.fromchat.ui.profile.peerIsDeleted
 
-private val userIdUsernamePattern = Regex("^User (\\d+)$")
-
 /**
  * Resolves [Message.username] for display: localized «Вы», deleted user label, or server-provided name.
  */
@@ -36,11 +34,6 @@ fun messageDisplayUsername(message: Message, currentUserId: Int?): String {
     if (cachedUsername != null) return cachedUsername
     if (message.username.equals("deleted", ignoreCase = true)) {
         return deletedUserDisplayNameForUi()
-    }
-    val m = userIdUsernamePattern.matchEntire(message.username)
-    if (m != null) {
-        val id = m.groupValues[1].toIntOrNull()
-        if (id != null) return deletedUserDisplayNameForUi()
     }
     return message.username
 }

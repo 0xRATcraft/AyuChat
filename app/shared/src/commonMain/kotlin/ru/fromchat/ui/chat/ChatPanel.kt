@@ -22,6 +22,7 @@ import ru.fromchat.ui.chat.utils.TypingHandler
 import ru.fromchat.ui.chat.utils.TypingUser
 import ru.fromchat.ui.chat.utils.dedupeMessagesByClientId
 import ru.fromchat.ui.chat.utils.dropSupersededOptimisticMessages
+import ru.fromchat.ui.chat.utils.attachPublicReplyReferences
 import ru.fromchat.ui.chat.utils.mergeDatabaseMessagesWithPanelState
 import kotlin.time.ExperimentalTime
 
@@ -83,11 +84,14 @@ abstract class ChatPanel(
 
     /** Merge SQLDelight rows with in-memory optimistic attachment UI (pending preview, thumbnails). */
     suspend fun syncMessagesFromDatabase(messages: List<Message>) {
-        batchStateUpdates {
-            updateState { current ->
-                val merged = mergeDatabaseMessagesWithPanelState(current.messages, messages)
-                if (current.messages == merged) current
-                else current.copy(messages = merged)
+        addMessageMutex.withLock {
+            batchStateUpdates {
+                updateState { current ->
+                    val merged = mergeDatabaseMessagesWithPanelState(current.messages, messages)
+                    val withReplies = attachPublicReplyReferences(merged)
+                    if (current.messages == withReplies) current
+                    else current.copy(messages = withReplies)
+                }
             }
         }
     }
@@ -360,7 +364,9 @@ abstract class ChatPanel(
                     mapped + resolvedConfirmed
                 else -> mapped
             }
-            currentState.copy(messages = sortMessagesForChatDisplay(messages))
+            currentState.copy(
+                messages = sortMessagesForChatDisplay(attachPublicReplyReferences(messages)),
+            )
         }
         scope.launch(Dispatchers.Default) {
             val resolved = _state.messages.find { it.client_message_id == tempId }
@@ -435,7 +441,11 @@ abstract class ChatPanel(
      * Send message with immediate display (optimistic update)
      */
     @OptIn(ExperimentalTime::class)
-    suspend fun sendMessageWithImmediateDisplay(content: String, replyToId: Int?) {
+    suspend fun sendMessageWithImmediateDisplay(
+        content: String,
+        replyToId: Int?,
+        replyTo: Message? = null,
+    ) {
         if (content.isBlank()) return
 
         val sendT0 = kotlin.time.Clock.System.now().toEpochMilliseconds()
@@ -446,6 +456,10 @@ abstract class ChatPanel(
 
         // Show the bubble immediately; pace only the network send below.
         val tempId = generateClientMessageId()
+        val resolvedReply = replyTo?.takeIf { it.id > 0 }
+            ?: replyToId?.takeIf { it > 0 }?.let { replyId ->
+                _state.messages.find { it.id == replyId }
+            }
         val tempMessage = Message(
             id = -1, // Temporary negative ID
             user_id = currentUserId ?: -1,
@@ -455,9 +469,8 @@ abstract class ChatPanel(
             is_edited = false,
             username = "You",
             client_message_id = tempId,
-            reply_to = replyToId?.let { replyId ->
-                _state.messages.find { it.id == replyId }
-            }
+            reply_to = resolvedReply,
+            replyToId = resolvedReply?.id ?: replyToId?.takeIf { it > 0 },
         )
 
         // Unique negative id avoids duplicate LazyColumn keys and bad merge logic.
