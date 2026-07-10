@@ -211,41 +211,55 @@ fun ChatScreen(
     var hiddenDefaultTimestampKeys by rememberSaveable(panelId) {
         mutableStateOf(setOf<String>())
     }
-    var lastAnimatedMessageKeys by rememberSaveable(panelId) {
-        mutableStateOf(setOf<String>())
-    }
+    // Visit-scoped (not saveable): reopen must re-seed history, never replay enter.
+    var lastAnimatedMessageKeys by remember(panelId) { mutableStateOf(setOf<String>()) }
+    var knownEnterIdentities by remember(panelId) { mutableStateOf(setOf<String>()) }
     val enterCoordinator = remember(panelId) { MessageEnterCoordinator(scope) }
     val activeEnterAnimation by enterCoordinator.currentItem.collectAsState()
     val pendingNewMessageKeys by enterCoordinator.pendingNewMessageKeys.collectAsState()
     val queuedEnter by enterCoordinator.queuedEnter.collectAsState()
-    var previousNewestFingerprint by rememberSaveable(panelId) { mutableStateOf("") }
-    var previousEnterMessageCount by rememberSaveable(panelId) { mutableIntStateOf(0) }
-    var enterAnimationsSeeded by rememberSaveable(panelId) { mutableStateOf(false) }
+    var previousNewestFingerprint by remember(panelId) { mutableStateOf("") }
+    var previousEnterMessageCount by remember(panelId) { mutableIntStateOf(0) }
+    var enterAnimationsSeeded by remember(panelId) { mutableStateOf(false) }
 
     LaunchedEffect(panelState.messages) {
         val messages = panelState.messages
         val newest = messages.lastOrNull()
         if (newest == null) {
-            if (!enterAnimationsSeeded) {
-                previousNewestFingerprint = ""
-                previousEnterMessageCount = 0
-            }
+            // Always reset so the next hydrate is treated as a fresh seed, not a +N append.
+            previousNewestFingerprint = ""
+            previousEnterMessageCount = 0
             return@LaunchedEffect
         }
         val newestKey = messageListKey(newest)
+        val newestIdentity = messageEnterIdentity(newest)
         val fingerprint = "$newestKey|${messages.size}"
         if (fingerprint == previousNewestFingerprint) return@LaunchedEffect
 
         val previousFingerprint = previousNewestFingerprint
         val previousCount = previousEnterMessageCount
         val sizeDelta = messages.size - previousCount
+        val presentKeys = messages.mapTo(mutableSetOf()) { messageListKey(it) }
+        val presentIdentities = messages.mapTo(mutableSetOf()) { messageEnterIdentity(it) }
+        val newIdentities = presentIdentities - knownEnterIdentities
 
-        // First non-empty load (or reopen before seed): never animate existing history.
-        if (!enterAnimationsSeeded || previousFingerprint.isEmpty()) {
-            lastAnimatedMessageKeys = messages.map { messageListKey(it) }.toSet()
+        fun seedWithoutAnimating(reason: String) {
+            Logger.d(
+                "EnterAnim",
+                "$reason newestKey=${newestKey.take(12)} sizeDelta=$sizeDelta " +
+                    "count=${messages.size} newIdentities=${newIdentities.size} " +
+                    "newestId=${newest.id}",
+            )
+            lastAnimatedMessageKeys = lastAnimatedMessageKeys + presentKeys
+            knownEnterIdentities = knownEnterIdentities + presentIdentities
             previousNewestFingerprint = fingerprint
             previousEnterMessageCount = messages.size
             enterAnimationsSeeded = true
+        }
+
+        // First non-empty load for this visit: never animate existing history.
+        if (!enterAnimationsSeeded || previousFingerprint.isEmpty()) {
+            seedWithoutAnimating("seed_first_load")
             return@LaunchedEffect
         }
 
@@ -255,20 +269,19 @@ fun ChatScreen(
         val previousNewestKey = previousFingerprint.substringBefore('|')
         // History prepend / cache hydration: newest unchanged, older rows appeared.
         if (newestKey == previousNewestKey) {
-            Logger.d(
-                "EnterAnim",
-                "skip_newest_unchanged newestKey=${newestKey.take(12)} " +
-                    "sizeDelta=$sizeDelta count=${messages.size}",
-            )
-            lastAnimatedMessageKeys =
-                lastAnimatedMessageKeys + messages.map { messageListKey(it) }
+            seedWithoutAnimating("skip_newest_unchanged")
             return@LaunchedEffect
         }
-        // Transient shrink (optimistic briefly missing from a DB sync): do not seed
-        // lastAnimated. Drop keys for rows that left so a restore can re-enqueue enter.
+        // In-place remap (timestamp / client id attach) — same count, new list key.
+        if (sizeDelta == 0) {
+            seedWithoutAnimating("skip_remap")
+            return@LaunchedEffect
+        }
+        // Transient shrink: keep identities; drop list keys that left so a restore
+        // can re-enqueue only if the identity is truly new (it won't be).
         if (sizeDelta < 0) {
-            val presentKeys = messages.mapTo(mutableSetOf()) { messageListKey(it) }
             lastAnimatedMessageKeys = lastAnimatedMessageKeys.intersect(presentKeys)
+            knownEnterIdentities = knownEnterIdentities.intersect(presentIdentities)
             Logger.d(
                 "EnterAnim",
                 "skip_shrink newestKey=${newestKey.take(12)} sizeDelta=$sizeDelta " +
@@ -276,42 +289,25 @@ fun ChatScreen(
             )
             return@LaunchedEffect
         }
-        // Bulk replace / multi-message sync — seed, don't animate.
-        if (sizeDelta > 1) {
-            Logger.d(
-                "EnterAnim",
-                "skip_bulk_delta newestKey=${newestKey.take(12)} sizeDelta=$sizeDelta " +
-                    "count=${messages.size} newestId=${newest.id}",
-            )
-            lastAnimatedMessageKeys =
-                lastAnimatedMessageKeys + messages.map { messageListKey(it) }
+        // Bulk replace / multi-message sync / hydrate jump — seed, don't animate.
+        if (sizeDelta > 1 || newIdentities.size != 1) {
+            seedWithoutAnimating("skip_bulk_or_multi_new")
             return@LaunchedEffect
         }
-        if (newestKey in lastAnimatedMessageKeys) return@LaunchedEffect
-        // Confirm may briefly change key shape; don't re-animate the same send.
-        val newestCid = newest.client_message_id?.trim().orEmpty()
-        if (newestCid.isNotEmpty() && "c:$newestCid" in lastAnimatedMessageKeys) {
-            Logger.d(
-                "EnterAnim",
-                "skip_cid_already_animated newestKey=${newestKey.take(12)} " +
-                    "cid=${newestCid.take(8)}",
-            )
-            lastAnimatedMessageKeys = lastAnimatedMessageKeys + newestKey
+        // Exactly one new identity, but it isn't the newest row (insert/reorder).
+        if (newestIdentity !in newIdentities) {
+            seedWithoutAnimating("skip_new_not_newest")
             return@LaunchedEffect
         }
-        if (newest.id > 0 && lastAnimatedMessageKeys.any { it.startsWith("i:${newest.id}:") }) {
-            Logger.d(
-                "EnterAnim",
-                "skip_id_already_animated newestKey=${newestKey.take(12)} id=${newest.id}",
-            )
-            lastAnimatedMessageKeys = lastAnimatedMessageKeys + newestKey
+        if (newestKey in lastAnimatedMessageKeys || newestIdentity in knownEnterIdentities) {
+            seedWithoutAnimating("skip_already_known")
             return@LaunchedEffect
         }
 
         val previous = messages.getOrNull(messages.lastIndex - 1)
         val mode = classifyEnterMode(previous, newest)
         if (mode == EnterMode.None) {
-            lastAnimatedMessageKeys = lastAnimatedMessageKeys + newestKey
+            seedWithoutAnimating("skip_mode_none")
             return@LaunchedEffect
         }
         Logger.d(
@@ -321,6 +317,7 @@ fun ChatScreen(
                 "sizeDelta=$sizeDelta newestId=${newest.id}",
         )
         lastAnimatedMessageKeys = lastAnimatedMessageKeys + newestKey
+        knownEnterIdentities = knownEnterIdentities + newestIdentity
         enterCoordinator.enqueue(
             PendingEnter(
                 newMessageKey = newestKey,

@@ -160,6 +160,18 @@ internal fun messageListKey(message: Message): String {
     return if (cid.isNotEmpty()) "c:$cid" else "i:${message.id}:${message.timestamp}"
 }
 
+/**
+ * Stable identity for enter-animation dedupe. Survives list-key remaps
+ * (timestamp tweaks, optimistic → confirmed) so reopen/hydration never
+ * re-animates an already-seen message.
+ */
+internal fun messageEnterIdentity(message: Message): String {
+    val cid = message.client_message_id?.trim().orEmpty()
+    if (cid.isNotEmpty()) return "c:$cid"
+    if (message.id > 0) return "i:${message.id}"
+    return "t:${message.id}:${message.timestamp}"
+}
+
 internal fun timestampGroupKey(message: Message): String {
     val cid = message.client_message_id?.trim().orEmpty()
     return if (cid.isNotEmpty()) "c:$cid" else "i:${message.id}"
