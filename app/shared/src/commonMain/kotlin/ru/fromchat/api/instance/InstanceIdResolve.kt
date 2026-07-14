@@ -73,7 +73,7 @@ suspend fun resolveInstanceId(
 
 fun apiBaseUrlFor(config: ServerConfigData): String {
     val scheme = if (config.httpsEnabled) "https" else "http"
-    return "$scheme://${config.serverIp}:${config.apiPort}/api"
+    return "$scheme://${config.serverIp}:${config.apiPort}"
 }
 
 private fun networkFailureToResolveResult(

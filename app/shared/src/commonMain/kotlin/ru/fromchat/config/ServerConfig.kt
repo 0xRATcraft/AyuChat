@@ -50,12 +50,12 @@ object ServerConfig {
     }
 
     /**
-     * LiveKit signaling WebSocket URL: same host and API port as HTTPS reverse proxy (`/api/livekit/rtc`).
+     * LiveKit signaling WebSocket URL: same host and API port as HTTPS reverse proxy (`/livekit/rtc`).
      * WebRTC media uses the configured calls port on the server (e.g. HAProxy in front of LiveKit).
      */
     fun liveKitSignalingWsUrl(): String {
         val scheme = if (config.httpsEnabled) "wss" else "ws"
-        return "$scheme://${config.serverIp}:${config.apiPort}/api/livekit/rtc"
+        return "$scheme://${config.serverIp}:${config.apiPort}/livekit/rtc"
     }
 
     /**
@@ -64,7 +64,7 @@ object ServerConfig {
     val apiBaseUrl: String
         get() {
             val scheme = if (config.httpsEnabled) "https" else "http"
-            return "$scheme://${config.serverIp}:${config.apiPort}/api"
+            return "$scheme://${config.serverIp}:${config.apiPort}"
         }
 
     /**
@@ -73,7 +73,7 @@ object ServerConfig {
     val webSocketUrl: String
         get() {
             val scheme = if (config.httpsEnabled) "wss" else "ws"
-            return "$scheme://${config.serverIp}:${config.apiPort}/api/chat/ws"
+            return "$scheme://${config.serverIp}:${config.apiPort}/chat/ws"
         }
 }
 

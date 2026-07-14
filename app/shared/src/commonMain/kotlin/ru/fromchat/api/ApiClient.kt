@@ -854,16 +854,19 @@ object ApiClient {
     }
 
     /**
-     * Fetch encrypted file bytes. Path is e.g. "/uploads/files/encrypted/xxx.jpg" or "/api/uploads/files/encrypted/xxx.jpg".
-     * Backend may return path with /api prefix; apiBaseUrl already includes /api, so we avoid double /api.
+     * Fetch encrypted file bytes. Path examples:
+     * - absolute URL like "http://..." -> returned as-is
+     * - "/uploads/files/encrypted/xxx.jpg" -> returned as <apiBaseUrl>/uploads/...
+     * - "/api/uploads/..." -> strip legacy `/api` prefix, then combine with apiBaseUrl
      */
-    fun encryptedFileUrl(path: String): String = when {
-        path.startsWith("http") -> path
-        path.startsWith("/api") -> {
-            val serverBase = ServerConfig.apiBaseUrl.removeSuffix("/api")
-            "$serverBase$path"
+    fun encryptedFileUrl(path: String): String {
+        if (path.startsWith("http")) return path
+        val base = ServerConfig.apiBaseUrl.trimEnd('/')
+        var p = if (path.startsWith("/")) path else "/$path"
+        if (p.startsWith("/api/") || p == "/api") {
+            p = p.removePrefix("/api").ifEmpty { "/" }
         }
-        else -> "${ServerConfig.apiBaseUrl}$path"
+        return base + p
     }
 
     /** Plain public-chat attachment URL (same path resolution as [encryptedFileUrl]). */
@@ -1357,7 +1360,7 @@ object ApiClient {
     suspend fun validateToken(): Boolean {
         try {
             http
-                .get("${ServerConfig.apiBaseUrl}/api/user/profile")
+                .get("${ServerConfig.apiBaseUrl}/user/profile")
             return true // Token is valid if no exception thrown
         } catch (e: ClientRequestException) {
             if (e.response.status.value == 401 || e.response.status.value == 403) {
