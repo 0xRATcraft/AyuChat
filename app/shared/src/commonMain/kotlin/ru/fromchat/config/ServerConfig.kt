@@ -30,28 +30,24 @@ object ServerConfig {
         _serverConfig.value = config
     }
 
-    /** Voice/video calls when the last server-config apply probe to the calls port succeeded. */
+    /** Voice/video calls when the last server-config apply probe succeeded. */
     val callsEnabled: Boolean
         get() = config.callsEnabled
 
-    /** Calls port used for LiveKit WS / reachability (defaults to [DEFAULT_CALLS_PORT]). */
+    /** Port used for LiveKit WS (same as API; TLS reverse-proxy fronts the SFU). */
     val callsPort: Int
-        get() = config.callsPort
+        get() = config.apiPort
 
     /**
-     * LiveKit WS endpoint derived from the active server config:
-     * - host = [ServerConfigData.serverIp]
-     * - port = [ServerConfigData.callsPort]
-     * - scheme = ws or wss based on [ServerConfigData.httpsEnabled]
+     * LiveKit WS URL: same host/port as the API (Caddy proxies `/rtc*` to the SFU over TLS).
      */
     fun liveKitWsUrl(): String {
         val scheme = if (config.httpsEnabled) "wss" else "ws"
-        return "$scheme://${config.serverIp}:${config.callsPort}"
+        return "$scheme://${config.serverIp}:${config.apiPort}"
     }
 
     /**
-     * LiveKit signaling WebSocket URL: same host and API port as HTTPS reverse proxy (`/livekit/rtc`).
-     * WebRTC media uses the configured calls port on the server (e.g. HAProxy in front of LiveKit).
+     * LiveKit signaling WebSocket URL via the API reverse proxy (`/livekit/rtc`).
      */
     fun liveKitSignalingWsUrl(): String {
         val scheme = if (config.httpsEnabled) "wss" else "ws"
@@ -77,12 +73,14 @@ object ServerConfig {
         }
 }
 
-/** Default WebRTC / calls port when none is stored or the field is left empty in UI. */
+/** Legacy default when migrating old configs that stored a separate calls port. */
 const val DEFAULT_CALLS_PORT = 8303
 
 /**
- * Server configuration: [serverIp], HTTP(S) [apiPort], [callsPort] for WebRTC / HAProxy (defaults to [DEFAULT_CALLS_PORT]).
- * [callsEnabled] is updated when saving server settings (probe on the calls port); defaults to true when unset.
+ * Server configuration: [serverIp] + [apiPort] (from a single `host[:port]` field; default port 443).
+ * [httpsEnabled] is resolved by probing (HTTPS first, HTTP on SSL errors) unless the user typed a scheme.
+ * [callsEnabled] is set when LiveKit is reachable through the API host (TLS proxy or same port).
+ * [callsPort] is kept for persistence compatibility and mirrors [apiPort].
  */
 data class ServerConfigData(
     val serverIp: String,

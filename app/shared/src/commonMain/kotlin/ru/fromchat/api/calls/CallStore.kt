@@ -120,7 +120,7 @@ object CallStore {
     fun startOutgoingCall(peerUserId: Int) {
         if (peerUserId <= 0 || peerUserId == ApiClient.user?.id) return
         if (!ServerConfig.callsEnabled) {
-            Logger.d(TAG, "startOutgoingCall ignored (calls disabled: set calls port in server settings)")
+            Logger.d(TAG, "startOutgoingCall ignored (calls disabled)")
             return
         }
         Logger.i(TAG, "startOutgoingCall(peer=$peerUserId)")

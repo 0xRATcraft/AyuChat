@@ -25,12 +25,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.Http
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
@@ -61,18 +58,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
-import com.pr0gramm3r101.components.Category
-import com.pr0gramm3r101.components.SwitchListItem
 import com.pr0gramm3r101.utils.navigateAndWipeBackStack
 import com.pr0gramm3r101.utils.toDp
 import dev.chrisbanes.haze.HazeProgressive
@@ -89,18 +81,15 @@ import org.jetbrains.compose.resources.stringResource
 import ru.fromchat.Res
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.local.WebSocketManager
-import ru.fromchat.api_port_label
 import ru.fromchat.back
-import ru.fromchat.calls_port_label
 import ru.fromchat.cancel
 import ru.fromchat.confirm
-import ru.fromchat.config.DEFAULT_CALLS_PORT
 import ru.fromchat.config.ServerConfigData
 import ru.fromchat.config.Settings
 import ru.fromchat.api.instance.ServerProbeResult
 import ru.fromchat.api.instance.ApplyServerResult
 import ru.fromchat.api.instance.applyServerAndNavigate
-import ru.fromchat.api.instance.probeServer
+import ru.fromchat.api.instance.probeServerEndpoint
 import ru.fromchat.save_continue
 import ru.fromchat.server_config_action_check
 import ru.fromchat.server_config_action_reset
@@ -108,9 +97,6 @@ import ru.fromchat.server_config_action_reset_confirm_body
 import ru.fromchat.server_config_action_reset_confirm_title
 import ru.fromchat.server_config_checking
 import ru.fromchat.server_config_host_error
-import ru.fromchat.server_config_https_headline
-import ru.fromchat.server_config_https_local_hint
-import ru.fromchat.server_config_port_error
 import ru.fromchat.server_config_snackbar_api_fail
 import ru.fromchat.server_config_snackbar_defaults
 import ru.fromchat.server_config_snackbar_ok_calls
@@ -133,21 +119,10 @@ import ru.fromchat.ui.components.SettingsPasswordOutlineFieldShape
 import ru.fromchat.ui.components.rememberLazyListFocusScrollState
 import ru.fromchat.ui.components.trackLazyListFocus
 import ru.fromchat.ui.main.settings.SettingsStepHorizontalPadding
-import kotlin.math.roundToInt
 
 private object ServerConfigLazyListIndices {
     const val SERVER_IP_FIELD = 2
-    const val PORT_FIELDS = 4
 }
-
-private inline fun port(text: String, default: Int) = text
-    .trim()
-    .ifEmpty { default }
-    .let { (it as String).toIntOrNull() }
-    ?.takeIf { it in 1..65535 } ?: default
-
-private fun resolvedApiPort(apiPortText: String) = port(apiPortText, 443)
-private fun resolvedCallsPort(callsPortText: String) = port(callsPortText, DEFAULT_CALLS_PORT)
 
 @OptIn(
     ExperimentalFoundationApi::class,
@@ -164,17 +139,11 @@ fun ServerConfigScreen() {
     val snackbarHostState = remember { SnackbarHostState() }
     val density = LocalDensity.current
 
-    var serverIp by remember { mutableStateOf("") }
-    var apiPortText by remember { mutableStateOf("") }
-    var callsPortText by remember { mutableStateOf("") }
-    var httpsEnabled by remember { mutableStateOf(true) }
+    var serverEndpoint by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         Settings.serverConfig.apply {
-            serverIp = this.serverIp
-            apiPortText = this.apiPort.toString()
-            callsPortText = this.callsPort.toString()
-            httpsEnabled = this.httpsEnabled
+            serverEndpoint = formatServerEndpointForInput(serverIp, apiPort)
         }
     }
 
@@ -188,7 +157,6 @@ fun ServerConfigScreen() {
 
     val strSnackbarDefaults = stringResource(Res.string.server_config_snackbar_defaults)
     val strHostError = stringResource(Res.string.server_config_host_error)
-    val strPortError = stringResource(Res.string.server_config_port_error)
     val strSnackbarApiFail = stringResource(Res.string.server_config_snackbar_api_fail)
     val strSnackbarTimeout = stringResource(Res.string.server_config_snackbar_timeout)
     val strUnsupportedInstance = stringResource(Res.string.server_config_unsupported_no_instance_id)
@@ -196,60 +164,35 @@ fun ServerConfigScreen() {
     val strResetConfirmTitle = stringResource(Res.string.server_config_action_reset_confirm_title)
     val strResetConfirmBody = stringResource(Res.string.server_config_action_reset_confirm_body)
 
-    val hostOk = serverIp.isNotBlank() && isValidIpOrHostname(serverIp)
-    val apiPortError = apiPortText.isNotEmpty() && !isValidPortNumber(apiPortText)
-    val callsPortError = callsPortText.isNotEmpty() && !isValidPortNumber(callsPortText)
+    val parsedEndpoint = remember(serverEndpoint) { parseServerEndpoint(serverEndpoint) }
+    val hostOk = parsedEndpoint != null
 
-    val canApply =
-        hostOk &&
-        !apiPortError &&
-        !callsPortError &&
-        !busy
+    val canApply = hostOk && !busy
 
     fun resetToDefaults() {
-        serverIp = "fromchat.ru"
-        apiPortText = "443"
-        callsPortText = DEFAULT_CALLS_PORT.toString()
-        httpsEnabled = true
+        serverEndpoint = "api.fromchat.ru"
 
         scope.launch {
             snackbarHostState.showSnackbar(strSnackbarDefaults)
         }
     }
 
-    fun buildTentativeConfig(): ServerConfigData? {
-        val host = serverIp.trim()
-
-        if (
-            host.isEmpty() ||
-            !isValidIpOrHostname(host) ||
-            (apiPortText.isNotEmpty() && !isValidPortNumber(apiPortText)) ||
-            (callsPortText.isNotEmpty() && !isValidPortNumber(callsPortText))
-        ) return null
-
-        return ServerConfigData(
-            serverIp = host,
-            apiPort = resolvedApiPort(apiPortText),
-            callsPort = resolvedCallsPort(callsPortText),
-            httpsEnabled = httpsEnabled,
-        )
-    }
+    fun buildTentativeFromParsed(): ParsedServerEndpoint? = parsedEndpoint
 
     fun verifyServer() {
         scope.launch {
             launch { snackbarHostState.showSnackbar(strChecking) }
-            val tentative = buildTentativeConfig()
-            if (tentative == null) {
-                snackbarHostState.showSnackbar(
-                    if (serverIp.isNotEmpty() && !isValidIpOrHostname(serverIp.trim())) {
-                        strHostError
-                    } else {
-                        strPortError
-                    },
-                )
+            val parsed = buildTentativeFromParsed()
+            if (parsed == null) {
+                snackbarHostState.showSnackbar(strHostError)
                 return@launch
             }
-            val probe = probeServer(tentative)
+            val (tentative, probe) = probeServerEndpoint(
+                host = parsed.host,
+                port = parsed.port,
+                httpsPreferred = parsed.httpsPreferred,
+                schemeExplicit = parsed.schemeExplicit,
+            )
             lastProbe = probe
             lastProbedConfig = tentative
             val msg = when (probe) {
@@ -305,11 +248,19 @@ fun ServerConfigScreen() {
                             try {
                                 busy = true
 
-                                val tentative = buildTentativeConfig() ?: return@launch
-                                val probe = probeServer(tentative).also {
-                                    lastProbe = it
-                                    lastProbedConfig = tentative
+                                val parsed = buildTentativeFromParsed()
+                                if (parsed == null) {
+                                    snackbarHostState.showSnackbar(strHostError)
+                                    return@launch
                                 }
+                                val (tentative, probe) = probeServerEndpoint(
+                                    host = parsed.host,
+                                    port = parsed.port,
+                                    httpsPreferred = parsed.httpsPreferred,
+                                    schemeExplicit = parsed.schemeExplicit,
+                                )
+                                lastProbe = probe
+                                lastProbedConfig = tentative
 
                                 when (probe) {
                                     ServerProbeResult.Unsupported -> {
@@ -487,8 +438,8 @@ fun ServerConfigScreen() {
 
                         item {
                             OutlinedTextField(
-                                value = serverIp,
-                                onValueChange = { serverIp = filterHostInput(it) },
+                                value = serverEndpoint,
+                                onValueChange = { serverEndpoint = filterHostInput(it) },
                                 label = { Text(stringResource(Res.string.server_ip_label)) },
                                 placeholder = { Text(stringResource(Res.string.server_ip_hint)) },
                                 modifier = Modifier
@@ -499,15 +450,15 @@ fun ServerConfigScreen() {
                                     )
                                     .padding(horizontal = SettingsStepHorizontalPadding),
                                 singleLine = true,
-                                isError = !hostOk,
-                                supportingText = if (!hostOk) {{
+                                isError = serverEndpoint.isNotBlank() && !hostOk,
+                                supportingText = if (serverEndpoint.isNotBlank() && !hostOk) {{
                                     Text(stringResource(Res.string.server_config_host_error))
                                 }} else null,
                                 colors = fieldColors,
                                 shape = SettingsPasswordOutlineFieldShape,
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Uri,
-                                    imeAction = ImeAction.Next,
+                                    imeAction = ImeAction.Done,
                                 ),
                                 leadingIcon = {
                                     Icon(Icons.Filled.Dns, null)
@@ -515,135 +466,7 @@ fun ServerConfigScreen() {
                             )
                         }
 
-                        item { Spacer(Modifier.height(8.dp)) }
-
-                        item {
-                            Layout(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = SettingsStepHorizontalPadding),
-                                content = {
-                                    OutlinedTextField(
-                                        value = apiPortText,
-                                        onValueChange = { apiPortText = it.filter { it.isDigit() }.take(6) },
-                                        label = {
-                                            Text(
-                                                text = stringResource(Res.string.api_port_label),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        },
-                                        placeholder = { Text("8300") },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .trackLazyListFocus(
-                                                focusScrollState,
-                                                ServerConfigLazyListIndices.PORT_FIELDS,
-                                            ),
-                                        singleLine = true,
-                                        isError = apiPortError,
-                                        supportingText = if (apiPortError) {
-                                            { Text(stringResource(Res.string.server_config_port_error)) }
-                                        } else null,
-                                        colors = fieldColors,
-                                        shape = SettingsPasswordOutlineFieldShape,
-                                        keyboardOptions = KeyboardOptions(
-                                            keyboardType = KeyboardType.NumberPassword,
-                                            imeAction = ImeAction.Next,
-                                        ),
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.Http, null)
-                                        },
-                                    )
-
-                                    OutlinedTextField(
-                                        value = callsPortText,
-                                        onValueChange = { callsPortText = it.filter { it.isDigit() }.take(6) },
-                                        label = {
-                                            Text(
-                                                text = stringResource(Res.string.calls_port_label),
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                            )
-                                        },
-                                        placeholder = { Text(DEFAULT_CALLS_PORT.toString()) },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .trackLazyListFocus(
-                                                focusScrollState,
-                                                ServerConfigLazyListIndices.PORT_FIELDS,
-                                            ),
-                                        singleLine = true,
-                                        isError = callsPortError,
-                                        supportingText = if (callsPortError) {{
-                                            Text(stringResource(Res.string.server_config_port_error))
-                                        }} else null,
-                                        colors = fieldColors,
-                                        shape = SettingsPasswordOutlineFieldShape,
-                                        keyboardOptions = KeyboardOptions(
-                                            keyboardType = KeyboardType.Number,
-                                            imeAction = ImeAction.Done,
-                                        ),
-                                        leadingIcon = {
-                                            Icon(Icons.Filled.Call, null)
-                                        }
-                                    )
-                                }
-                            ) { measurables, constraints ->
-                                val maxWidth = constraints.maxWidth
-                                val gapPx = 12.dp.roundToPx()
-                                val available = (maxWidth - gapPx).coerceAtLeast(0)
-
-                                val callsPx = (available * 0.60f)
-                                    .roundToInt()
-                                    .coerceAtLeast(168.dp.roundToPx())
-                                    .coerceAtMost(available)
-                                val apiPx = (available - callsPx).coerceAtLeast(0)
-
-                                if (measurables.size != 2) {
-                                    return@Layout layout(0, 0) {}
-                                }
-
-                                val apiWidth = measurables[0].measure(Constraints.fixedWidth(apiPx))
-                                val callsWidth = measurables[1].measure(Constraints.fixedWidth(callsPx))
-
-                                layout(
-                                    maxWidth,
-                                    maxOf(apiWidth.height, callsWidth.height)
-                                        .coerceIn(constraints.minHeight, constraints.maxHeight)
-                                ) {
-                                    apiWidth.place(0, 0)
-                                    callsWidth.place(apiPx + gapPx, 0)
-                                }
-                            }
-                        }
-
                         item { Spacer(Modifier.height(16.dp)) }
-
-                        item {
-                            Column {
-                                Category(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    margin = PaddingValues(
-                                        start = SettingsStepHorizontalPadding,
-                                        end = SettingsStepHorizontalPadding,
-                                    ),
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                                ) {
-                                    SwitchListItem(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        headline = stringResource(Res.string.server_config_https_headline),
-                                        supportingText = stringResource(Res.string.server_config_https_local_hint),
-                                        leadingContent = {
-                                            Icon(Icons.Filled.Shield, null)
-                                        },
-                                        checked = httpsEnabled,
-                                        onCheckedChange = { httpsEnabled = it },
-                                        divider = false,
-                                    )
-                                }
-                            }
-                        }
 
                         item {
                             Row(

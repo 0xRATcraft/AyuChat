@@ -22,26 +22,110 @@ sealed interface ServerProbeResult {
     data object Unreachable : ServerProbeResult
 }
 
-private const val CALLS_PROBE_MS = 1_500L
-
-suspend fun probeCallsReachable(config: ServerConfigData): Boolean {
-    val urlScheme = if (config.httpsEnabled) "https" else "http"
-    val host = config.serverIp.trim()
-    val authorityHost = host.removePrefix("[").removeSuffix("]").ifEmpty { host }
-    val root = "$urlScheme://$authorityHost:${config.callsPort}/"
-    return runCatching {
-        withTimeout(CALLS_PROBE_MS) {
-            ApiClient.probeHttpGet(root)
-        }
-    }.getOrDefault(false)
-}
-
 sealed interface ApplyServerResult {
     data object Applied : ApplyServerResult
     data object ServerUnreachable : ApplyServerResult
 }
 
-suspend fun probeServer(config: ServerConfigData): ServerProbeResult {
+private const val CALLS_PROBE_MS = 1_500L
+
+/** True when [error] looks like a TLS/SSL handshake failure (safe to fall back to HTTP). */
+fun Throwable.isSslProtocolError(): Boolean {
+    var cur: Throwable? = this
+    while (cur != null) {
+        val name = cur::class.simpleName.orEmpty()
+        val msg = cur.message.orEmpty()
+        if (
+            name.contains("SSL", ignoreCase = true) ||
+            name.contains("TLS", ignoreCase = true) ||
+            name.contains("Cert", ignoreCase = true) ||
+            msg.contains("SSL", ignoreCase = true) ||
+            msg.contains("TLS", ignoreCase = true) ||
+            msg.contains("certificate", ignoreCase = true) ||
+            msg.contains("handshake", ignoreCase = true)
+        ) {
+            return true
+        }
+        cur = cur.cause
+    }
+    return false
+}
+
+suspend fun probeCallsReachable(config: ServerConfigData): Boolean {
+    val urlScheme = if (config.httpsEnabled) "https" else "http"
+    val host = config.serverIp.trim()
+    val authorityHost = host.removePrefix("[").removeSuffix("]").ifEmpty { host }
+    // Caddy rewrites this to LiveKit "/" (plain "OK"). GET /rtc is always 404 without a WS upgrade.
+    val url = "$urlScheme://$authorityHost:${config.apiPort}/livekit-health"
+    return runCatching {
+        withTimeout(CALLS_PROBE_MS) {
+            ApiClient.probeHttpGet(url)
+        }
+    }.getOrDefault(false)
+}
+
+suspend fun probeServer(config: ServerConfigData): ServerProbeResult =
+    probeServerEndpoint(
+        host = config.serverIp,
+        port = config.apiPort,
+        httpsPreferred = config.httpsEnabled,
+        schemeExplicit = true,
+    ).second
+
+/**
+ * Builds configs to try: explicit scheme only, or HTTPS then HTTP on SSL errors.
+ * Returns the working config (httpsEnabled set to what succeeded) and the probe result.
+ */
+suspend fun probeServerEndpoint(
+    host: String,
+    port: Int,
+    httpsPreferred: Boolean,
+    schemeExplicit: Boolean,
+): Pair<ServerConfigData, ServerProbeResult> {
+    val schemes = when {
+        schemeExplicit -> listOf(httpsPreferred)
+        else -> listOf(true, false)
+    }
+    var lastConfig = ServerConfigData(
+        serverIp = host,
+        apiPort = port,
+        callsPort = port,
+        httpsEnabled = httpsPreferred,
+    )
+    var lastResult: ServerProbeResult = ServerProbeResult.Unreachable
+    for ((index, https) in schemes.withIndex()) {
+        val config = ServerConfigData(
+            serverIp = host,
+            apiPort = port,
+            callsPort = port,
+            httpsEnabled = https,
+        )
+        lastConfig = config
+        val (result, failure) = probeServerOnce(config)
+        lastResult = result
+        when (result) {
+            is ServerProbeResult.Supported,
+            ServerProbeResult.Unsupported,
+            -> return config to result
+            ServerProbeResult.Timeout,
+            ServerProbeResult.Unreachable,
+            -> {
+                val hasHttpFallback = !schemeExplicit && https && index < schemes.lastIndex
+                if (!hasHttpFallback) return config to result
+                // Browser-like: only fall back to HTTP after a TLS/protocol failure.
+                if (failure?.isSslProtocolError() == true) continue
+                if (result is ServerProbeResult.Timeout) return config to result
+                // Non-SSL Unreachable (e.g. LAN cleartext / connection refused on 443): try HTTP.
+                continue
+            }
+        }
+    }
+    return lastConfig to lastResult
+}
+
+private suspend fun probeServerOnce(
+    config: ServerConfigData,
+): Pair<ServerProbeResult, Throwable?> {
     val apiBase = apiBaseUrlFor(config)
     val mark = TimeSource.Monotonic.markNow()
     InstanceIdGuard.probeConfig = config
@@ -57,12 +141,19 @@ suspend fun probeServer(config: ServerConfigData): ServerProbeResult {
             is InstanceIdResolveResult.Cached -> resolve.instanceId
             is InstanceIdResolveResult.Fetched -> resolve.instanceId
             is InstanceIdResolveResult.InstanceIdChanged -> resolve.newId
-            InstanceIdResolveResult.Unsupported -> return ServerProbeResult.Unsupported
-            InstanceIdResolveResult.Timeout -> return ServerProbeResult.Timeout
-            InstanceIdResolveResult.Unreachable -> return ServerProbeResult.Unreachable
+            InstanceIdResolveResult.Unsupported ->
+                return ServerProbeResult.Unsupported to null
+            InstanceIdResolveResult.Timeout ->
+                return ServerProbeResult.Timeout to null
+            InstanceIdResolveResult.Unreachable -> {
+                val failure = runCatching {
+                    ApiClient.fetchServerInstanceId(apiBase)
+                }.exceptionOrNull()
+                return ServerProbeResult.Unreachable to failure
+            }
         }
         val callsOk = probeCallsReachable(config)
-        return ServerProbeResult.Supported(instanceId, callsOk, pingMs)
+        return ServerProbeResult.Supported(instanceId, callsOk, pingMs) to null
     } finally {
         InstanceIdGuard.probeConfig = null
     }
@@ -73,7 +164,7 @@ suspend fun applyServerConfig(
     instanceId: String,
     callsOk: Boolean,
 ) {
-    val tentative = config.copy(callsEnabled = callsOk)
+    val tentative = config.copy(callsEnabled = callsOk, callsPort = config.apiPort)
     ServerConfig.updateServerConfig(tentative)
     DocumentRepository.invalidate()
     val userId = ApiClient.user?.id

@@ -2,120 +2,136 @@
 
 # FromChat
 
-FromChat — 100% бесплатный и открытый мессенджер. В этом репозитории содержится кроссплатформенный клиент для Android и iOS.
+FromChat — 100% бесплатный и открытый мессенджер. В этом репозитории — кроссплатформенный клиент (Android + iOS; iOS пока не готов).
 
-[📥 Скачать](https://github.com/fromchat-messenger/app/releases/latest) • [💬 Telegram-канал](https://t.me/fromchat_ch) • [🖥️ Сервер](https://github.com/fromchat-messenger/backend)
+[📥 Скачать](https://github.com/fromchat-messenger/android/releases/latest) • [💬 Telegram-канал](https://t.me/fromchat_ch) • [🖥️ Сервер](https://github.com/fromchat-messenger/backend)
 
 ## ✨ Возможности
 
-- **Голосовые и видеозвонки** — высокое качество связи через LiveKit
-- **Совместное использование экрана** — демонстрация экрана при вызовах
-- **Общий чат** — сообщество всех пользователей на сервере
-- **Личные сообщения** — используется легальная схема шифрования. Планируется режим E2EE на сервере.
-- **Управление устройствами** — контроль активных сеансов
-- **Тёмный режим по умолчанию** — стильный и приятный для глаз вид
-- **Открытый исходный код** — полная прозрачность
+- **Голосовые и видеозвонки** — LiveKit
+- **Демонстрация экрана** во время звонков
+- **Общий чат** — сообщество пользователей сервера
+- **Личные сообщения** — легальная схема шифрования; E2EE на сервере планируется
+- **Управление устройствами** — активные сеансы
+- **Тёмный режим** по умолчанию
+- **Открытый исходный код**
 
 ## 📊 Сравнение клиентов
 
-⚠️ **iOS временно не поддерживается.** Разработка iOS-части требует много времени и из-за ограничений Apple это гораздо сложнее, чем на Android. Поэтому она выйдет позже.
+⚠️ **iOS временно не поддерживается** (ограничения Apple и объём работы). Клиент выйдет позже.
 
-В этой таблице показано, какие возможности реализованы в официальных клиентах.
-
-
-| Возможность                         | Android | Web | iOS |
-| ----------------------------------- | ------- | --- | --- |
-| **Обмен сообщениями и профили**     | ✅       | ✅   | ✅   |
-| **Голосовые/видеозвонки**           | ✅       | ❌   | ❌   |
-| **Совместное использование экрана** | ✅       | ❌   | ❌   |
-| **Реакции на сообщения**            | ❌       | ✅   | ❌   |
-| **Расширенная поддержка вложений**  | ✅       | ❌   | ❌   |
-
+| Возможность | Android | Web | iOS |
+| --- | --- | --- | --- |
+| **Обмен сообщениями и профили** | ✅ | ✅ | ❌ |
+| **Голосовые/видеозвонки** | ✅ | ✅ | ❌ |
+| **Демонстрация экрана** | ✅ | ✅ | ❌ |
+| **Реакции на сообщения** | ❌ | ✅ | ❌ |
+| **Расширенная поддержка вложений** | ✅ | ❌ | ❌ |
 
 ---
 
 ## 🏗️ Технологический стек
 
-- **Kotlin** — язык программирования, ориентированный на безопасность и производительность
-- **Compose Multiplatform** — объявленный UI фреймворк для кроссплатформенной разработки
-- **Material Design 3** — современные компоненты пользовательского интерфейса
-- **Ktor Client** — асинхронный HTTP клиент для сетевых запросов
-- **LiveKit** — инфраструктура для видеозвонков и конференций
-- **SQLDelight** — тип-безопасные SQL запросы для локального хранилища данных
-- **Firebase Messaging** — push-уведомления
-- **Coil** — загрузка и кэширование изображений
+- **Kotlin**
+- **Compose Multiplatform**
+- **Material Design 3**
+- **Ktor Client**
+- **LiveKit** — звонки
+- **SQLDelight** — локальное хранилище
+- **Firebase Messaging** — push
+- **Coil** — изображения
 
+---
 
 ## 📥 Сборка и разработка (Android Studio)
 
 ### Требования
 
-- Последняя версия Android Studio
-- Компоненты, обновленные до последних версий
+- Актуальная Android Studio
+- JDK из Android Studio (JetBrains Runtime)
 
 ### Быстрый старт
 
 1. **Клонируйте репозиторий:**
-  ```bash
-   git clone https://github.com/fromchat-messenger/app.git
-   cd app
-  ```
+
+   ```bash
+   git clone https://github.com/fromchat-messenger/android.git
+   cd android
+   ```
+
 2. **Сгенерируйте ключи (Debug & Release):**
-  1. Установите переменные (замените `CHANGEME` на ваши надежные пароли):
-    ```bash
-    DEBUG_STORE_PASS=CHANGEME
-    DEBUG_KEY_PASS=CHANGEME
-    RELEASE_STORE_PASS=CHANGEME
-    RELEASE_KEY_PASS=CHANGEME
-    ```
-  2. Выполните команды:
-    ```bash
-    mkdir -p app/android/keys
 
-    keytool -genkey -v -keystore app/android/keys/debug.jks \
-      -keyalg RSA -keysize 2048 -validity 10000 \
-      -alias key0 -storepass $DEBUG_STORE_PASS -keypass $DEBUG_KEY_PASS \
-      -dname "CN=Debug, O=FromChat, C=RU"
+   ```bash
+   DEBUG_STORE_PASS=CHANGEME
+   DEBUG_KEY_PASS=CHANGEME
+   RELEASE_STORE_PASS=CHANGEME
+   RELEASE_KEY_PASS=CHANGEME
 
-    keytool -genkey -v -keystore app/android/keys/release.jks \
-      -keyalg RSA -keysize 2048 -validity 10000 \
-      -alias key0 -storepass $RELEASE_STORE_PASS -keypass $RELEASE_KEY_PASS \
-      -dname "CN=Release, O=FromChat, C=RU"
+   mkdir -p app/android/keys
 
-    cat > app/android/keystore.properties << EOF
-    releaseStorePassword=$RELEASE_STORE_PASS
-    releaseKeyPassword=$RELEASE_KEY_PASS
-    debugStorePassword=$DEBUG_STORE_PASS
-    debugKeyPassword=$DEBUG_KEY_PASS
-    EOF
-    ```
-3. **Откройте в Android Studio:**
-  - Выберите: `File → Open → app/`
-  - Android Studio автоматически загружает все зависимости и синхронизирует Gradle
-4. **Запустите:**
-  - Нажмите `Run → Run 'Android'` (Shift+F10)
-  - Выберите эмулятор или подключённое устройство
+   keytool -genkey -v -keystore app/android/keys/debug.jks \
+     -keyalg RSA -keysize 2048 -validity 10000 \
+     -alias key0 -storepass $DEBUG_STORE_PASS -keypass $DEBUG_KEY_PASS \
+     -dname "CN=Debug, O=FromChat, C=RU"
+
+   keytool -genkey -v -keystore app/android/keys/release.jks \
+     -keyalg RSA -keysize 2048 -validity 10000 \
+     -alias key0 -storepass $RELEASE_STORE_PASS -keypass $RELEASE_KEY_PASS \
+     -dname "CN=Release, O=FromChat, C=RU"
+
+   cat > app/android/keystore.properties << EOF
+   releaseStorePassword=$RELEASE_STORE_PASS
+   releaseKeyPassword=$RELEASE_KEY_PASS
+   debugStorePassword=$DEBUG_STORE_PASS
+   debugKeyPassword=$DEBUG_KEY_PASS
+   EOF
+   ```
+
+3. **Откройте в Android Studio:** `File → Open` → корень репозитория. Gradle подтянет зависимости сам.
+
+4. **Запустите:** `Run → Run 'Android'` (или debug-конфигурацию приложения).  
+   Debug application id: `ru.fromchat.beta`.
+
+### Сборка из CLI
+
+```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+./gradlew :app:shared:compileAndroidMain :app:android:assembleDebug
+```
+
+APK: `app/android/build/outputs/apk/debug/android-debug.apk`.
 
 ### Структура проекта
 
 ```
 android/
-├── app/ # Код клиента
-│   ├── android/         # Модуль Android-приложения
-│   └── shared/          # Общий код Compose (Android + iOS)
-│       ├── commonMain/  # Кроссплатформенный код
-│       ├── androidMain/ # Android-специфичный код
-│       └── iosMain/     # iOS-специфичный код (еще не готово)
-├── utils/ # Модуль всяких полезных штук, которые можно использовать в другом проекте
-│   ├── android/ # Модуль Android-библиотеки
-│   └── shared/           
-└── gradle/libs.versions.toml # Управление зависимостями
+├── app/
+│   ├── android/          # Android app module
+│   └── shared/           # Compose Multiplatform
+│       ├── commonMain/
+│       ├── androidMain/
+│       └── iosMain/      # ещё не готово
+├── utils/                # переиспользуемые утилиты
+│   ├── android/
+│   └── shared/
+└── gradle/libs.versions.toml
 ```
+
+Стиль кода: [CODE_STYLE.md](./CODE_STYLE.md).
+
+---
 
 ## 🤝 Внести вклад
 
-Если вам хочется поддержать разработку проекта, просто кидайте Pull Request, я уверен, что вы это уже знаете, мне лень это расписывать.
+Pull Request приветствуются. Перед крупными изменениями загляните в `CODE_STYLE.md`.
 
 ## 📄 Лицензия
 
-Этот проект лицензирован в соответствии с лицензией GNU Affero General Public License v3.0. Подробности см. в файле [LICENSE](./LICENSE).
+GNU Affero General Public License v3.0 — см. [LICENSE](./LICENSE).
+
+## 🔗 Связанные репозитории
+
+- [Backend](https://github.com/fromchat-messenger/backend)
+- [Web](https://github.com/fromchat-messenger/web)
+- [Website](https://github.com/fromchat-messenger/site)
+- [Deployment](https://github.com/fromchat-messenger/deployment)

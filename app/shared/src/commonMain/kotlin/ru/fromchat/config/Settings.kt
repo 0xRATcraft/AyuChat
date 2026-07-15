@@ -108,9 +108,9 @@ object Settings {
     suspend fun readServerConfig(): ServerConfigData {
         migrateLegacyServerUrlIfNeeded()
         if (!settings.contains(SERVER_IP_KEY)) {
-            settings.putString(SERVER_IP_KEY, "fromchat.ru")
+            settings.putString(SERVER_IP_KEY, "api.fromchat.ru")
             settings.putInt(API_PORT_KEY, 443)
-            settings.putInt(CALLS_PORT_KEY, DEFAULT_CALLS_PORT)
+            settings.putInt(CALLS_PORT_KEY, 443)
             if (!settings.contains(HTTPS_ENABLED_KEY)) {
                 settings.putBoolean(HTTPS_ENABLED_KEY, true)
             }

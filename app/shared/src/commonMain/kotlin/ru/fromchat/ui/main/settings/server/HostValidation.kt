@@ -1,19 +1,21 @@
 package ru.fromchat.ui.main.settings.server
 
-private fun isAllowedHostChar(ch: Char) = ch.isLetterOrDigit() || ch in ".:-[]_"
+private fun isAllowedHostChar(ch: Char) = ch.isLetterOrDigit() || ch in ".:-[]_/"
 
-internal fun filterHostInput(raw: String) = raw.filter(::isAllowedHostChar).take(253)
+internal fun filterHostInput(raw: String) = raw.filter(::isAllowedHostChar).take(280)
 
 internal fun isValidPortNumber(text: String): Boolean =
     (text.ifBlank { return true }.toIntOrNull() ?: return false) in 1..65535
 
+/** Host only (no scheme/port). Used after [parseServerEndpoint]. */
 internal fun isValidIpOrHostname(host: String) = host.trim().let { h ->
     !(
         h.isEmpty() ||
         h.length > 253 ||
-        h.any { !isAllowedHostChar(it) }
+        h.any { !(it.isLetterOrDigit() || it in ".:-[]_") }
     ) && (
         isValidIpv4(h) ||
+        isValidIpv6(h) ||
         isValidIpv6Bracketed(h) ||
         isValidHostname(h)
     )
@@ -28,16 +30,18 @@ private fun isValidIpv4(s: String): Boolean {
     return true
 }
 
+private fun isValidIpv6(s: String): Boolean {
+    if (s.isBlank() || !s.all { it.isDigit() || it in "abcdefABCDEF:" }) return false
+    return s.count { it == ':' } >= 2
+}
+
 private fun isValidIpv6Bracketed(s: String): Boolean {
     if (!s.startsWith('[') || !s.contains(']')) return false
 
     val end = s.indexOf(']')
     if (end <= 1) return false
 
-    val inner = s.substring(1, end)
-    if (inner.isBlank() || !inner.all { it.isDigit() || it in "abcdefABCDEF:" }) return false
-
-    return inner.count { it == ':' } >= 2
+    return isValidIpv6(s.substring(1, end))
 }
 
 private fun isValidHostname(host: String): Boolean {
