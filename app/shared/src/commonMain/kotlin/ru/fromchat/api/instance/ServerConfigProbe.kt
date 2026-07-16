@@ -3,11 +3,12 @@ package ru.fromchat.api.instance
 import kotlinx.coroutines.withTimeout
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.local.WebSocketManager
-import ru.fromchat.api.local.db.store.InstanceRegistryStore
-import ru.fromchat.config.ServerConfigData
 import ru.fromchat.api.local.cache.CacheContext
+import ru.fromchat.api.local.db.store.InstanceRegistryStore
 import ru.fromchat.config.ServerConfig
+import ru.fromchat.config.ServerConfigData
 import ru.fromchat.legal.DocumentRepository
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.TimeSource
 
 sealed interface ServerProbeResult {
@@ -51,20 +52,26 @@ fun Throwable.isSslProtocolError(): Boolean {
     return false
 }
 
-suspend fun probeCallsReachable(config: ServerConfigData): Boolean {
-    val urlScheme = if (config.httpsEnabled) "https" else "http"
-    val host = config.serverIp.trim()
-    val authorityHost = host.removePrefix("[").removeSuffix("]").ifEmpty { host }
-    // Caddy rewrites this to LiveKit "/" (plain "OK"). GET /rtc is always 404 without a WS upgrade.
-    val url = "$urlScheme://$authorityHost:${config.apiPort}/livekit-health"
-    return runCatching {
-        withTimeout(CALLS_PROBE_MS) {
-            ApiClient.probeHttpGet(url)
-        }
-    }.getOrDefault(false)
-}
+suspend fun probeCallsReachable(config: ServerConfigData) = runCatching {
+    withTimeout(CALLS_PROBE_MS.milliseconds) {
+        ApiClient.probeHttpGet(
+            buildString {
+                append(if (config.httpsEnabled) "https" else "http")
+                append("://")
+                append(
+                    config.serverIp.trim().let {
+                        it.removePrefix("[").removeSuffix("]").ifEmpty { it }
+                    }
+                )
+                append(":")
+                append(config.apiPort)
+                append("/livekit-health")
+            }
+        )
+    }
+}.getOrDefault(false)
 
-suspend fun probeServer(config: ServerConfigData): ServerProbeResult =
+suspend fun probeServer(config: ServerConfigData) =
     probeServerEndpoint(
         host = config.serverIp,
         port = config.apiPort,
@@ -82,44 +89,51 @@ suspend fun probeServerEndpoint(
     httpsPreferred: Boolean,
     schemeExplicit: Boolean,
 ): Pair<ServerConfigData, ServerProbeResult> {
-    val schemes = when {
-        schemeExplicit -> listOf(httpsPreferred)
-        else -> listOf(true, false)
-    }
     var lastConfig = ServerConfigData(
         serverIp = host,
         apiPort = port,
         callsPort = port,
         httpsEnabled = httpsPreferred,
     )
+
     var lastResult: ServerProbeResult = ServerProbeResult.Unreachable
-    for ((index, https) in schemes.withIndex()) {
-        val config = ServerConfigData(
-            serverIp = host,
-            apiPort = port,
-            callsPort = port,
-            httpsEnabled = https,
-        )
-        lastConfig = config
-        val (result, failure) = probeServerOnce(config)
-        lastResult = result
-        when (result) {
-            is ServerProbeResult.Supported,
-            ServerProbeResult.Unsupported,
-            -> return config to result
-            ServerProbeResult.Timeout,
-            ServerProbeResult.Unreachable,
-            -> {
-                val hasHttpFallback = !schemeExplicit && https && index < schemes.lastIndex
-                if (!hasHttpFallback) return config to result
-                // Browser-like: only fall back to HTTP after a TLS/protocol failure.
-                if (failure?.isSslProtocolError() == true) continue
-                if (result is ServerProbeResult.Timeout) return config to result
-                // Non-SSL Unreachable (e.g. LAN cleartext / connection refused on 443): try HTTP.
-                continue
+
+    when {
+        schemeExplicit -> listOf(httpsPreferred)
+        else -> listOf(true, false)
+    }.apply {
+        forEachIndexed { index, https ->
+            val config = ServerConfigData(
+                serverIp = host,
+                apiPort = port,
+                callsPort = port,
+                httpsEnabled = https,
+            )
+
+            lastConfig = config
+            val (result, failure) = probeServerOnce(config)
+            lastResult = result
+
+            when (result) {
+                is ServerProbeResult.Supported,
+                ServerProbeResult.Unsupported -> return config to result
+                ServerProbeResult.Timeout,
+                ServerProbeResult.Unreachable -> {
+                    if (!(!schemeExplicit && https && index < lastIndex)) return config to result
+
+                    // Browser-like: only fall back to HTTP after a TLS/protocol failure.
+                    if (failure?.isSslProtocolError() == true)
+                        return@forEachIndexed
+                    if (result is ServerProbeResult.Timeout)
+                        return config to result
+
+                    // Non-SSL Unreachable (e.g. LAN cleartext / connection refused on 443): try HTTP.
+                    return@forEachIndexed
+                }
             }
         }
     }
+
     return lastConfig to lastResult
 }
 
@@ -127,33 +141,38 @@ private suspend fun probeServerOnce(
     config: ServerConfigData,
 ): Pair<ServerProbeResult, Throwable?> {
     val apiBase = apiBaseUrlFor(config)
-    val mark = TimeSource.Monotonic.markNow()
+    val time = TimeSource.Monotonic.markNow()
     InstanceIdGuard.probeConfig = config
+
     try {
-        val resolve = resolveInstanceId(
-            config = config,
-            apiBaseUrl = apiBase,
-            forceNetwork = true,
-            allowCachedOnFailure = false,
-        )
-        val pingMs = mark.elapsedNow().inWholeMilliseconds.toInt().coerceAtLeast(0)
-        val instanceId = when (resolve) {
-            is InstanceIdResolveResult.Cached -> resolve.instanceId
-            is InstanceIdResolveResult.Fetched -> resolve.instanceId
-            is InstanceIdResolveResult.InstanceIdChanged -> resolve.newId
-            InstanceIdResolveResult.Unsupported ->
-                return ServerProbeResult.Unsupported to null
-            InstanceIdResolveResult.Timeout ->
-                return ServerProbeResult.Timeout to null
-            InstanceIdResolveResult.Unreachable -> {
-                val failure = runCatching {
-                    ApiClient.fetchServerInstanceId(apiBase)
-                }.exceptionOrNull()
-                return ServerProbeResult.Unreachable to failure
-            }
-        }
-        val callsOk = probeCallsReachable(config)
-        return ServerProbeResult.Supported(instanceId, callsOk, pingMs) to null
+        val pingMs = time.elapsedNow().inWholeMilliseconds.toInt().coerceAtLeast(0)
+
+        return ServerProbeResult.Supported(
+            when (
+                val resolve = resolveInstanceId(
+                    config = config,
+                    apiBaseUrl = apiBase,
+                    forceNetwork = true,
+                    allowCachedOnFailure = false,
+                )
+            ) {
+                is InstanceIdResolveResult.Cached -> resolve.instanceId
+                is InstanceIdResolveResult.Fetched -> resolve.instanceId
+                is InstanceIdResolveResult.InstanceIdChanged -> resolve.newId
+                InstanceIdResolveResult.Unsupported ->
+                    return ServerProbeResult.Unsupported to null
+                InstanceIdResolveResult.Timeout ->
+                    return ServerProbeResult.Timeout to null
+                InstanceIdResolveResult.Unreachable -> {
+                    val failure = runCatching {
+                        ApiClient.fetchServerInstanceId(apiBase)
+                    }.exceptionOrNull()
+                    return ServerProbeResult.Unreachable to failure
+                }
+            },
+            probeCallsReachable(config),
+            pingMs
+        ) to null
     } finally {
         InstanceIdGuard.probeConfig = null
     }
@@ -182,13 +201,15 @@ suspend fun applyServerAndNavigate(
 ): ApplyServerResult {
     val apiBase = apiBaseUrlFor(config)
     val token = bearer.trim()
+
     if (token.isEmpty()) {
         applyServerConfig(config, probe.instanceId, probe.callsOk)
         WebSocketManager.disconnect()
         onNavigateLogin()
         return ApplyServerResult.Applied
     }
-    when (val auth = ApiClient.checkAuthAt(apiBase, token)) {
+
+    when (ApiClient.checkAuthAt(apiBase, token)) {
         ApiClient.CheckAuthResult.Authenticated -> {
             applyServerConfig(config, probe.instanceId, probe.callsOk)
             WebSocketManager.disconnect()
@@ -196,9 +217,11 @@ suspend fun applyServerAndNavigate(
             onNavigateChat()
             return ApplyServerResult.Applied
         }
+
         ApiClient.CheckAuthResult.Unreachable -> {
             return ApplyServerResult.ServerUnreachable
         }
+
         ApiClient.CheckAuthResult.NotAuthenticated -> {
             onLogoutOldHost()
             applyServerConfig(config, probe.instanceId, probe.callsOk)
