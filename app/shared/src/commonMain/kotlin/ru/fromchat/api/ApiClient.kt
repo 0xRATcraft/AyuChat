@@ -68,6 +68,7 @@ import ru.fromchat.api.schema.calls.LiveKitTokenResponse
 import ru.fromchat.api.schema.core.SimpleStatusResponse
 import ru.fromchat.api.schema.messages.MarkReadRequest
 import ru.fromchat.api.schema.messages.MessagesResponse
+import ru.fromchat.api.schema.messages.dm.DmArchiveRequest
 import ru.fromchat.api.schema.messages.dm.DmConversation
 import ru.fromchat.api.schema.messages.dm.DmConversationsResponse
 import ru.fromchat.api.schema.messages.dm.DmHistoryResponse
@@ -558,12 +559,18 @@ object ApiClient {
             }
             .body()
 
-    suspend fun getProfileById(userId: Int): UserProfile =
-        http
+    suspend fun getProfileById(userId: Int, force: Boolean = false): UserProfile {
+        if (!force) {
+            ProfileCache.get(userId)?.takeIf {
+                !it.isClientPreviewOnly && ProfileCache.hasFreshFullProfile(userId)
+            }?.let { return it }
+        }
+        return http
             .get("${ServerConfig.apiBaseUrl}/user/id/$userId") {
                 contentType(ContentType.Application.Json)
             }
             .body()
+    }
 
     suspend fun getProfileByUsername(username: String): UserProfile =
         http
@@ -678,6 +685,13 @@ object ApiClient {
         http.post("${ServerConfig.apiBaseUrl}/dm/conversations/$otherUserId/read") {
             contentType(ContentType.Application.Json)
             setBody(DmMarkReadRequest(upToEnvelopeId = upToEnvelopeId))
+        }
+    }
+
+    suspend fun archiveDmConversation(otherUserId: Int, archived: Boolean = true) {
+        http.post("${ServerConfig.apiBaseUrl}/dm/conversations/$otherUserId/archive") {
+            contentType(ContentType.Application.Json)
+            setBody(DmArchiveRequest(archived = archived))
         }
     }
 

@@ -12,6 +12,7 @@ import ru.fromchat.api.ApiClient
 import ru.fromchat.api.local.AttachmentMediaLog
 import ru.fromchat.api.local.messages.generateClientMessageId
 import ru.fromchat.api.local.messages.nowMessageTimestampIso
+import ru.fromchat.api.local.messages.optimisticMessageIdForClientMessageId
 import ru.fromchat.api.local.messages.sortMessagesForChatDisplay
 import ru.fromchat.api.local.send.OutgoingMessageCoordinator
 import ru.fromchat.api.schema.messages.Message
@@ -611,7 +612,7 @@ abstract class ChatPanel(
 
         val tempId = generateClientMessageId()
         val newOptimistic = message.copy(
-            id = uniqueOptimisticMessageId(),
+            id = optimisticMessageIdForClientMessageId(tempId),
             client_message_id = tempId
         )
 
@@ -698,7 +699,7 @@ abstract class ChatPanel(
         )
 
         // Unique negative id avoids duplicate LazyColumn keys and bad merge logic.
-        val optimistic = tempMessage.copy(id = uniqueOptimisticMessageId())
+        val optimistic = tempMessage.copy(id = optimisticMessageIdForClientMessageId(tempId))
         addMessage(optimistic)
 
         Logger.d(
@@ -741,14 +742,6 @@ abstract class ChatPanel(
                 }
             }
         }
-    }
-
-    private suspend fun uniqueOptimisticMessageId(): Int = addMessageMutex.withLock {
-        var id: Int
-        do {
-            id = -kotlin.random.Random.nextInt(1, Int.MAX_VALUE)
-        } while (_state.messages.any { it.id == id })
-        id
     }
 
     /** Persist optimistic row for offline / process death; no-op by default. */

@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
@@ -715,7 +714,7 @@ fun ImageFullscreenPreview(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.systemBars),
+                .windowInsetsPadding(WindowInsets.safeDrawing),
         ) {
             AnimatedVisibility(
                 visible = effectiveMenusVisible,
@@ -796,20 +795,24 @@ fun ImageFullscreenPreview(
                                 },
                             )
                         }
-                        DropdownMenuItem(
-                            text = {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Rounded.Delete, null, tint = Color.White)
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(labelDelete, color = Color.White)
-                                }
-                            },
-                        onClick = {
-                            menuExpanded = false
-                            onDelete(message)
-                            dismissRequested = true
+                        if (currentUserId != null &&
+                            (message.user_id == currentUserId || currentUserId == 1)
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Rounded.Delete, null, tint = Color.White)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text(labelDelete, color = Color.White)
+                                    }
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    onDelete(message)
+                                    dismissRequested = true
+                                },
+                            )
                         }
-                        )
                     }
                 }
             }
@@ -821,7 +824,7 @@ fun ImageFullscreenPreview(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth()
-                .windowInsetsPadding(WindowInsets.systemBars),
+                .windowInsetsPadding(WindowInsets.safeDrawing),
         ) {
             AnimatedVisibility(
                 visible = effectiveMenusVisible && message.content.isNotBlank(),

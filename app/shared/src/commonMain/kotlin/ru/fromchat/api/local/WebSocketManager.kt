@@ -38,7 +38,6 @@ import ru.fromchat.api.local.db.store.ConnectionStateStore
 import ru.fromchat.api.local.send.OutgoingMessageCoordinator
 import ru.fromchat.api.schema.websocket.WebSocketCredentials
 import ru.fromchat.api.schema.websocket.WebSocketMessage
-import ru.fromchat.api.schema.websocket.types.WebSocketUpdatesData
 import ru.fromchat.config.ServerConfig
 import kotlin.concurrent.Volatile
 import kotlin.time.Clock
@@ -234,12 +233,11 @@ object WebSocketManager {
 
                                 val msg = when (messageType) {
                                     "updates" -> {
+                                        // Apply add/edit/delete before advancing; ack happens inside.
                                         runCatching {
-                                            val updatesData = json.decodeFromJsonElement(
-                                                WebSocketUpdatesData.serializer(), jsonTree)
-                                            UpdateSyncManager.onUpdatesBatch(updatesData.seq)
+                                            UpdateSyncManager.onUpdatesEnvelope(jsonTree)
                                         }.onFailure {
-                                            logW("Failed to decode updates envelope for seq tracking: ${it.message}", it)
+                                            logW("Failed to apply updates envelope: ${it.message}", it)
                                         }
 
                                         WebSocketMessage(

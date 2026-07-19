@@ -315,10 +315,19 @@ fun ChatScreen(
             visitEnterSyncComplete = true
         }
 
-        // First non-empty load for this visit: never animate existing history.
+        // First non-empty load for this visit: seed history without animating.
+        // Exception: empty → single live/own message should animate (first bubble in chat).
         if (!enterAnimationsSeeded || previousFingerprint.isEmpty()) {
-            seedWithoutAnimating("seed_first_load")
-            return@LaunchedEffect
+            val isLiveFirstMessage =
+                previousCount == 0 &&
+                    messages.size == 1 &&
+                    sizeDelta == 1
+            if (!isLiveFirstMessage) {
+                seedWithoutAnimating("seed_first_load")
+                return@LaunchedEffect
+            }
+            enterAnimationsSeeded = true
+            visitEnterSyncComplete = true
         }
 
         previousNewestFingerprint = fingerprint
@@ -413,6 +422,7 @@ fun ChatScreen(
     val saveMessageFile = rememberSaveMessageFile { /* best-effort */ }
     val haptic = rememberHapticFeedback()
     val navController = LocalNavController.current
+    val runNav = rememberChatNavigationGate(navController, animatedVisibilityScope)
     val keyboardController = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val profileUserId = panelState.profileUserId
@@ -701,6 +711,7 @@ fun ChatScreen(
                 msg.id == menuMessage.id
             }
         }
+
         if (liveMessage == null) {
             contextMenuState = contextMenuState.copy(isOpen = false, message = null)
             return@LaunchedEffect
@@ -1376,7 +1387,9 @@ fun ChatScreen(
 
                         ChatTopBar(
                             hazeState = hazeState,
-                            onBack = { navController.navigateUp() },
+                            onBack = {
+                                runNav { navController.navigateUp() }
+                            },
                             backContentDescription = stringResource(Res.string.back),
                             showCallButton = panel.showCallButton() && !isReadOnly,
                             onCallClick = {
@@ -1391,7 +1404,9 @@ fun ChatScreen(
                                     title = panelState.title,
                                     titleAvatar = panelState.titleAvatar,
                                     profileUserId = profileUserId,
-                                    onTitleClick = onTitleClick,
+                                    onTitleClick = onTitleClick?.let { click ->
+                                        { runNav(click) }
+                                    },
                                     hideTitleBarAvatar = hideTitleBarAvatar,
                                     onAvatarSlotBounds = onAvatarSlotBounds,
                                     sharedTransitionScope = sharedTransitionScope,

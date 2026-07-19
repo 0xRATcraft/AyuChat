@@ -20,8 +20,8 @@ fun nowMessageTimestampIso(): String = Clock.System.now().toString()
  * Parse message timestamps from server or client.
  *
  * - Strings with `Z` / an offset (optimistic client stamps, proper UTC) are true instants.
- * - Zone-less ISO from the API is naive server wall time (`datetime.now().isoformat()`),
- *   interpreted in the device zone so HH:mm matches the user's clock.
+ * - Zone-less ISO from the API is naive UTC wall time (`datetime.now().isoformat()`),
+ *   interpreted as UTC so local formatting shows the user's clock.
  */
 internal fun parseMessageInstant(timestamp: String): Instant? {
     val raw = timestamp.trim()
@@ -32,7 +32,7 @@ internal fun parseMessageInstant(timestamp: String): Instant? {
     }
     val local = parseLocalDateTimeOrNull(normalized) ?: return null
     return runCatching {
-        local.toInstant(TimeZone.currentSystemDefault())
+        local.toInstant(TimeZone.UTC)
     }.getOrNull()
 }
 

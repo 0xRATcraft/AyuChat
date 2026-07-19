@@ -117,6 +117,7 @@ object MessageRepository {
     suspend fun markDmConversationRead(otherUserId: Int, upToEnvelopeId: Int? = null) {
         runCatching { ApiClient.markDmConversationRead(otherUserId, upToEnvelopeId) }
         MessageCacheStore.markDmConversationReadLocally(otherUserId, upToEnvelopeId)
+        ru.fromchat.notifications.ChatNotificationDismissals.dismissAllMessageNotifications()
     }
 
     suspend fun markDmConversationReadUpTo(otherUserId: Int, upToEnvelopeId: Int) {
@@ -137,6 +138,7 @@ object MessageRepository {
             runCatching { ApiClient.markMessagesRead(ids) }
         }
         MessageCacheStore.markPublicMessagesReadLocally()
+        ru.fromchat.notifications.ChatNotificationDismissals.dismissAllMessageNotifications()
     }
 
     suspend fun archiveDmConversation(otherUserId: Int) =

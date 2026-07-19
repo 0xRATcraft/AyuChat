@@ -654,27 +654,11 @@ fun ChatsTab(
 
     fun deleteChats(userIds: Set<Int>) {
         scope.launch {
-            var failures = 0
-
             userIds.forEach { otherUserId ->
-                var ok = true
-
-                val messages = runCatching { MessageRepository.loadDmMessages(otherUserId) }
-                    .getOrDefault(emptyList())
-                    .filter { it.id > 0 }
-
-                messages.forEach { msg ->
-                    runCatching {
-                        ApiClient.deleteDm(msg.id, otherUserId)
-                    }.onFailure {
-                        ok = false
-                    }
-                }
                 runCatching {
-                    MessageRepository.deleteDmConversation(otherUserId)
-                }.onFailure { ok = false }
-
-                if (!ok) failures++
+                    ApiClient.archiveDmConversation(otherUserId, archived = true)
+                    MessageRepository.archiveDmConversation(otherUserId)
+                }
             }
 
             refreshDmList()

@@ -390,7 +390,7 @@ fun DevicesScreen(onBack: () -> Unit) {
         }
 
         val hadContent = devices.isNotEmpty()
-        if (hadContent) refreshing = true
+        if (!hadContent) refreshing = true
 
         runCatching { ApiClient.listDevices() }
             .onSuccess { list ->
@@ -570,11 +570,8 @@ fun DevicesScreen(onBack: () -> Unit) {
             }
 
             item {
-                AnimatedVisibility(
-                    visible = refreshing,
-                    enter = fadeIn(),
-                    exit = fadeOut(),
-                ) {
+                // Initial load only — background poll must not add/remove list height (overscroll jump).
+                if (refreshing && devices.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()

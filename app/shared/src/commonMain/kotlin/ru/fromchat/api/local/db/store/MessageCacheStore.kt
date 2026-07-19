@@ -539,7 +539,7 @@ object MessageCacheStore {
             .filter { it.type == "dm" }
         localDm.forEach { row ->
             val otherId = row.otherUserId?.toInt() ?: return@forEach
-            if (otherId !in serverOtherUserIds) {
+            if (otherId !in serverOtherUserIds && row.archived == 0L) {
                 db.messageDatabaseQueries.deleteConversationById(instanceId, row.id)
             }
         }
@@ -690,6 +690,7 @@ object MessageCacheStore {
                 id = convId,
             )
         }
+        DmConversationListNotifier.notifyChanged()
     }
 
     suspend fun deleteDmConversation(otherUserId: Int) {

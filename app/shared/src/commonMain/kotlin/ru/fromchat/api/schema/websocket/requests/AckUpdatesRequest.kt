@@ -4,9 +4,6 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class GetUpdatesResponse(
-    val status: String,
+data class AckUpdatesRequest(
     @SerialName("lastSeq") val lastSeq: Int,
-    @SerialName("missedCount") val missedCount: Int,
-    @SerialName("hasMore") val hasMore: Boolean = false,
 )

@@ -12,6 +12,7 @@ import ru.fromchat.api.local.cache.CacheContext
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavController
 import ru.fromchat.api.local.db.store.ProfileCache
+import ru.fromchat.ui.chat.rememberChatNavigationGate
 import ru.fromchat.utils.haptic.HapticFeedbackEvent
 import ru.fromchat.ui.profile.ProfileScreen
 import ru.fromchat.utils.haptic.rememberHapticFeedback
@@ -46,6 +47,7 @@ fun DmChatRoute(
     val activeInstanceId by CacheContext.activeInstanceId.collectAsState()
     val panel = remember(otherUserId, activeInstanceId) { DmPanelCache.getOrCreate(otherUserId) }
     val haptic = rememberHapticFeedback()
+    val runNav = rememberChatNavigationGate(navController, animatedVisibilityScope)
     val sharedAvatarKey = remember(otherUserId) { "$DM_AVATAR_KEY_PREFIX$otherUserId" }
 
     DmScreen(
@@ -54,8 +56,10 @@ fun DmChatRoute(
         modifier = modifier.fillMaxSize(),
         scrollToMessageId = scrollToMessageId,
         onTitleClick = {
-            haptic(HapticFeedbackEvent.ProfileOpened)
-            navController.navigate(DmNav.profileRoute(otherUserId))
+            runNav {
+                haptic(HapticFeedbackEvent.ProfileOpened)
+                navController.navigate(DmNav.profileRoute(otherUserId))
+            }
         },
         sharedTransitionScope = sharedTransitionScope,
         animatedVisibilityScope = animatedVisibilityScope,
@@ -74,6 +78,7 @@ fun DmProfileRoute(
     val activeInstanceId by CacheContext.activeInstanceId.collectAsState()
     val panel = remember(otherUserId, activeInstanceId) { DmPanelCache.getOrCreate(otherUserId) }
     val haptic = rememberHapticFeedback()
+    val runNav = rememberChatNavigationGate(navController, animatedVisibilityScope)
     val sharedAvatarKey = remember(otherUserId) { "$DM_AVATAR_KEY_PREFIX$otherUserId" }
     val stateSnapshot = panel.getState()
     val initialDisplayName = stateSnapshot.titleAvatar?.displayName?.takeIf { it.isNotBlank() }
@@ -92,12 +97,16 @@ fun DmProfileRoute(
         userId = otherUserId,
         showBackButton = true,
         onBack = {
-            haptic(HapticFeedbackEvent.ProfileClosed)
-            navController.popBackStack()
+            runNav {
+                haptic(HapticFeedbackEvent.ProfileClosed)
+                navController.popBackStack()
+            }
         },
         onChat = {
-            haptic(HapticFeedbackEvent.ProfileClosed)
-            navController.popBackStack()
+            runNav {
+                haptic(HapticFeedbackEvent.ProfileClosed)
+                navController.popBackStack()
+            }
         },
         modifier = modifier.fillMaxSize(),
         sharedTransitionScope = sharedTransitionScope,

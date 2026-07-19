@@ -18,13 +18,17 @@ fun resolveVerificationStatus(
     message: Message? = null,
     user: User? = null,
 ): VerificationStatus? {
-    ProfileCache.get(userId)?.effectiveVerificationStatus()?.let { cached ->
-        if (cached != VerificationStatus.None || ProfileCache.get(userId)?.verificationStatus != null) {
-            return cached
+    ProfileCache.get(userId)?.let { cached ->
+        if (cached.verificationStatus != null || cached.verified != null) {
+            return cached.effectiveVerificationStatus()
         }
     }
 
-    user?.effectiveVerificationStatus()?.let { return it }
+    user?.let { u ->
+        if (u.verificationStatus != null || u.verified != null) {
+            return u.effectiveVerificationStatus()
+        }
+    }
 
     message?.verificationStatus?.let { return it }
     message?.verified?.let { return if (it) VerificationStatus.Verified else null }

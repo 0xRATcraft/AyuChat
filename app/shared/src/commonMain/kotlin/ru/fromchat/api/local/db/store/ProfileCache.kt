@@ -20,6 +20,8 @@ import ru.fromchat.api.schema.user.profile.UserProfile
 import ru.fromchat.api.schema.user.profile.VerificationStatus
 import ru.fromchat.api.local.cache.CacheContext
 import kotlin.concurrent.Volatile
+import kotlin.time.Clock
+import kotlin.time.ExperimentalTime
 
 /**
  * Returns true when a profile entry should not expose its `username` field
@@ -56,17 +58,33 @@ object ProfileCache {
     @Volatile
     private var loadedInstanceId: String = ""
 
+    /** Epoch millis when a full (non-preview) profile was last applied from the server. */
+    @Volatile
+    private var fullProfileFetchedAtMs: Map<Int, Long> = emptyMap()
+
     private val _revision = MutableStateFlow(0)
     val revision: StateFlow<Int> = _revision.asStateFlow()
 
     private val persistMutex = Mutex()
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    /** Skip force=false network refetch when a full profile was fetched within this window. */
+    const val FULL_PROFILE_TTL_MS: Long = 5 * 60 * 1000L
+
     private fun bumpRevision() {
         _revision.value++
     }
 
     fun get(userId: Int): UserProfile? = profiles[userId]
+
+    /** True when a full non-preview profile was fetched recently enough to skip refetch. */
+    @OptIn(ExperimentalTime::class)
+    fun hasFreshFullProfile(userId: Int, maxAgeMs: Long = FULL_PROFILE_TTL_MS): Boolean {
+        val profile = get(userId) ?: return false
+        if (profile.isClientPreviewOnly) return false
+        val fetchedAt = fullProfileFetchedAtMs[userId] ?: return false
+        return (Clock.System.now().toEpochMilliseconds() - fetchedAt) <= maxAgeMs
+    }
 
     /** Emits whenever this user's cached profile changes (including bio). */
     fun observeUser(userId: Int): Flow<UserProfile?> =
@@ -173,12 +191,20 @@ object ProfileCache {
      * When [force] is false, an existing full (non-preview) cache row is kept so a slow HTTP
      * response cannot overwrite a fresher WebSocket update.
      */
+    @OptIn(ExperimentalTime::class)
     fun applyServerProfile(profile: UserProfile, force: Boolean = false) {
         if (profile.id <= 0) return
         val normalized = profile.copy(isClientPreviewOnly = false)
+        val nowMs = Clock.System.now().toEpochMilliseconds()
         if (!force) {
             val existing = get(profile.id)
             if (existing != null && !existing.isClientPreviewOnly) {
+                val patched = existing.copy(
+                    verified = normalized.verified ?: existing.verified,
+                    verificationStatus = normalized.verificationStatus
+                        ?: existing.verificationStatus,
+                )
+                if (patched != existing) put(patched)
                 if (existing.bio != normalized.bio) {
                     ru.fromchat.Logger.d(
                         "ProfileCache",
@@ -186,6 +212,8 @@ object ProfileCache {
                             "cachedBio='${existing.bio?.take(48)}' httpBio='${normalized.bio?.take(48)}'",
                     )
                 }
+                // Refresh TTL so force=false callers stop refetching.
+                fullProfileFetchedAtMs = fullProfileFetchedAtMs + (profile.id to nowMs)
                 return
             }
         }
@@ -195,6 +223,7 @@ object ProfileCache {
                 "bio='${normalized.bio?.take(48)}'",
         )
         put(normalized)
+        fullProfileFetchedAtMs = fullProfileFetchedAtMs + (profile.id to nowMs)
     }
 
     fun remove(userId: Int) {
@@ -297,7 +326,14 @@ object ProfileCache {
         val uid = message.user_id
         if (uid <= 0) return
         val existing = get(uid)
-        if (existing != null && !existing.isClientPreviewOnly) return
+        if (existing != null && !existing.isClientPreviewOnly) {
+            val patched = existing.copy(
+                verified = message.verified ?: existing.verified,
+                verificationStatus = message.verificationStatus ?: existing.verificationStatus,
+            )
+            if (patched != existing) put(patched)
+            return
+        }
 
         val uname = message.username.trim().ifBlank { existing?.username?.trim().orEmpty() }
         if (uname.isBlank()) return
@@ -375,6 +411,7 @@ object ProfileCache {
                 } else {
                     emptyMap()
                 }
+                fullProfileFetchedAtMs = emptyMap()
                 pruneUnusableClientPreviewsLocked()
                 bumpRevision()
             }
@@ -428,6 +465,7 @@ object ProfileCache {
     suspend fun clear() {
         persistMutex.withLock {
             profiles = emptyMap()
+            fullProfileFetchedAtMs = emptyMap()
             loadedInstanceId = ""
             bumpRevision()
         }

@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.NavController
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.local.db.store.PublicChatProfileCache
+import ru.fromchat.ui.chat.rememberChatNavigationGate
 import ru.fromchat.ui.chat.utils.PublicChatPanelCache
 import ru.fromchat.ui.profile.PublicChatProfileScreen
 import ru.fromchat.utils.haptic.HapticFeedbackEvent
@@ -31,6 +32,7 @@ fun PublicChatChatRoute(
     modifier: Modifier = Modifier,
 ) {
     val haptic = rememberHapticFeedback()
+    val runNav = rememberChatNavigationGate(navController, animatedVisibilityScope)
 
     PublicChatScreen(
         scrollToMessageId = scrollToMessageId,
@@ -38,8 +40,10 @@ fun PublicChatChatRoute(
         animatedVisibilityScope = animatedVisibilityScope,
         sharedAvatarKey = PublicChatNav.SHARED_HEADER_KEY,
         onTitleClick = {
-            haptic(HapticFeedbackEvent.ProfileOpened)
-            navController.navigate(PublicChatNav.PROFILE_ROUTE)
+            runNav {
+                haptic(HapticFeedbackEvent.ProfileOpened)
+                navController.navigate(PublicChatNav.PROFILE_ROUTE)
+            }
         },
         modifier = modifier.fillMaxSize(),
     )
@@ -57,6 +61,7 @@ fun PublicChatProfileRoute(
         PublicChatPanelCache.getOrCreateGeneralChat(currentUserId)
     }
     val haptic = rememberHapticFeedback()
+    val runNav = rememberChatNavigationGate(navController, animatedVisibilityScope)
     val stateSnapshot = panel.getState()
     val initialDisplayName = stateSnapshot.titleAvatar?.displayName?.takeIf { it.isNotBlank() }
         ?: stateSnapshot.title.takeIf { it.isNotBlank() }
@@ -65,12 +70,16 @@ fun PublicChatProfileRoute(
     PublicChatProfileScreen(
         showBackButton = true,
         onBack = {
-            haptic(HapticFeedbackEvent.ProfileClosed)
-            navController.popBackStack()
+            runNav {
+                haptic(HapticFeedbackEvent.ProfileClosed)
+                navController.popBackStack()
+            }
         },
         onChat = {
-            haptic(HapticFeedbackEvent.ProfileClosed)
-            navController.popBackStack()
+            runNav {
+                haptic(HapticFeedbackEvent.ProfileClosed)
+                navController.popBackStack()
+            }
         },
         modifier = modifier.fillMaxSize(),
         sharedTransitionScope = sharedTransitionScope,

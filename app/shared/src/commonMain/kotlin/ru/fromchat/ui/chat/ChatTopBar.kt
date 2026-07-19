@@ -32,8 +32,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.lifecycle.Lifecycle
+import androidx.navigation.NavController
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
@@ -68,6 +74,7 @@ import ru.fromchat.ui.profile.StatusBadge
 import ru.fromchat.ui.profile.peerIsDeleted
 import ru.fromchat.ui.profile.resolveVerificationStatus
 import ru.fromchat.api.local.db.store.ProfileCache
+import ru.fromchat.api.local.db.store.visibleDisplayName
 import ru.fromchat.api.ApiClient
 import com.pr0gramm3r101.utils.scaleOnPress
 import kotlin.math.PI
@@ -258,8 +265,12 @@ fun ChatTopBarInner(
                     }
 
                     key == "typing" -> {
+                        val me = ApiClient.user?.id
                         TypingIndicator(
-                            typingUsers = currentTypingUsers.map { it.username },
+                            typingUsers = currentTypingUsers.map { user ->
+                                ProfileCache.get(user.userId)?.visibleDisplayName(me)
+                                    ?: user.username
+                            },
                             showUsernames = typingShowsUsernames,
                             modifier = Modifier.padding(top = 2.dp),
                         )
@@ -445,5 +456,30 @@ fun rememberChatSurfaceContainerHazeStyle(): HazeStyle {
             backgroundColor = surface,
             tint = HazeTint(surface.copy(alpha = if (surface.luminance() >= 0.5f) 0.74f else 0.79f)),
         )
+    }
+}
+
+/**
+ * Single-flight gate for chat title/avatar navigate vs back during shared-element transitions.
+ * Ignores taps while a transition is running or the current destination is not resumed.
+ */
+@Composable
+fun rememberChatNavigationGate(
+    navController: NavController,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
+): (() -> Unit) -> Unit {
+    var locked by remember { mutableStateOf(false) }
+    val entry = navController.currentBackStackEntry
+    LaunchedEffect(entry) {
+        locked = false
+    }
+    return { action ->
+        val transitionRunning = animatedVisibilityScope?.transition?.isRunning == true
+        val lifecycleOk = navController.currentBackStackEntry?.lifecycle?.currentState
+            ?.let { it == Lifecycle.State.RESUMED } != false
+        if (!locked && !transitionRunning && lifecycleOk) {
+            locked = true
+            action()
+        }
     }
 }

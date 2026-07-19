@@ -204,7 +204,6 @@ fun MessageItem(
         isMessageCorrupted(message)
     }
     val primaryIsImageMessage = remember(
-        message.reply_to,
         message.pendingFileUri,
         message.pendingFilename,
         message.files,
@@ -219,10 +218,8 @@ fun MessageItem(
             )
             else -> false
         }
-        message.reply_to == null && (
-            pendingIsImage ||
-                message.files?.firstOrNull()?.let { isImageFilename(it.name) } == true
-        )
+        pendingIsImage ||
+            message.files?.firstOrNull()?.let { isImageFilename(it.name) } == true
     }
     val formattedTime = remember(message.timestamp) {
         formatMessageTimeLocal(message.timestamp)
@@ -569,10 +566,8 @@ fun MessageItem(
                         } else {
                             null
                         }
-                    val primaryIsImageContent = message.reply_to == null && (
-                        pendingIsImage ||
-                            message.files?.firstOrNull()?.let { isImageFilename(it.name) } == true
-                    )
+                    val primaryIsImageContent = pendingIsImage ||
+                        message.files?.firstOrNull()?.let { isImageFilename(it.name) } == true
                     val hasImageCaption =
                         message.content.isNotBlank() &&
                         !isFilenameOnlyMessageCaption(message)

@@ -236,6 +236,7 @@ class PublicChatPanel(
 
     /**
      * Match optimistic rows via [Message.client_message_id] from the server ack (never by text).
+     * When the server omits client_message_id, fall back to a single pending own optimistic.
      */
     private suspend fun confirmIncomingOwnMessageOrAdd(newMsg: Message) {
         val laidOut = newMsg.resolvePublicAttachmentLayout()
@@ -247,10 +248,54 @@ class PublicChatPanel(
                 return
             }
             if (laidOut.id > 0 && _state.messages.any { it.id == laidOut.id }) {
+                // Already confirmed in UI — still try to clear a leftover optimistic.
+                matchPendingOptimisticClientId(laidOut)?.let { pendingCid ->
+                    handleMessageConfirmed(
+                        pendingCid,
+                        laidOut.copy(client_message_id = pendingCid),
+                    )
+                }
+                return
+            }
+            matchPendingOptimisticClientId(laidOut)?.let { pendingCid ->
+                handleMessageConfirmed(
+                    pendingCid,
+                    laidOut.copy(client_message_id = pendingCid),
+                )
                 return
             }
         }
         ingestIncomingPublicMessage(laidOut)
+    }
+
+    /** Best-effort: unique pending own optimistic that looks like [confirmed]. */
+    private fun matchPendingOptimisticClientId(confirmed: Message): String? {
+        val pending = snapshotPendingOptimisticMessages().filter {
+            it.user_id == confirmed.user_id && it.id < 0
+        }
+        if (pending.isEmpty()) return null
+        val confirmedCid = confirmed.client_message_id?.trim().orEmpty()
+        if (confirmedCid.isNotEmpty()) {
+            pending.firstOrNull { it.client_message_id?.trim() == confirmedCid }
+                ?.client_message_id?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { return it }
+        }
+        if (pending.size == 1) {
+            return pending.first().client_message_id?.trim()?.takeIf { it.isNotEmpty() }
+        }
+        val confirmedTime = ru.fromchat.api.local.messages.parseMessageTimestampMillis(confirmed.timestamp)
+        val content = confirmed.content.trim()
+        val matches = pending.filter { opt ->
+            val optCid = opt.client_message_id?.trim().orEmpty()
+            if (optCid.isEmpty()) return@filter false
+            if (opt.content.trim() != content && confirmed.files.isNullOrEmpty() && opt.files.isNullOrEmpty()) {
+                return@filter false
+            }
+            val optTime = ru.fromchat.api.local.messages.parseMessageTimestampMillis(opt.timestamp)
+            confirmedTime == null || optTime == null ||
+                kotlin.math.abs(confirmedTime - optTime) <= 180_000L
+        }
+        return matches.singleOrNull()?.client_message_id?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     private suspend fun ingestIncomingPublicMessage(newMsg: Message) {

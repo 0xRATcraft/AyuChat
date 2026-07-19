@@ -37,6 +37,7 @@ class App: Application() {
     override fun onCreate() {
         super.onCreate()
         UtilsLibrary.init(this)
+        ru.fromchat.notifications.ChatNotificationDismissals.install(this)
 
         WebSocketManager.addGlobalMessageHandler { msg ->
             GlobalScope.launch(Dispatchers.IO) {

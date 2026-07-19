@@ -403,7 +403,7 @@ object NotificationHelper {
                 notify(
                     SUMMARY_NOTIFICATION_ID,
                     NotificationCompat.Builder(context, CHANNEL_ID)
-                        .setSmallIcon(R.drawable.logo_big)
+                        .setSmallIcon(R.drawable.logo)
                         .setContentTitle(title)
                         .setContentText(body)
                         .setStyle(
@@ -506,7 +506,7 @@ object NotificationHelper {
                     notify(
                         SUMMARY_NOTIFICATION_ID,
                         NotificationCompat.Builder(context, CHANNEL_ID)
-                            .setSmallIcon(R.drawable.logo_big)
+                            .setSmallIcon(R.drawable.logo)
                             .setStyle(
                                 NotificationCompat.MessagingStyle(
                                     Person.Builder().setName("FromChat").build()

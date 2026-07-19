@@ -28,7 +28,12 @@ internal fun attachPublicReplyReferences(
     return messages.map { msg ->
         val replyId = parsedReplyIds[msg.id] ?: resolvePublicReplyToId(msg) ?: return@map msg
         val nested = msg.reply_to
-        if (nested != null && nested.content.isNotBlank()) return@map msg
+        if (
+            nested != null &&
+            (nested.content.isNotBlank() || !nested.files.isNullOrEmpty())
+        ) {
+            return@map msg
+        }
         byId[replyId]?.let { msg.copy(reply_to = it, replyToId = replyId) } ?: msg
     }
 }

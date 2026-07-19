@@ -8,7 +8,6 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.FlowPreview
-import kotlinx.serialization.json.JsonElement
 import ru.fromchat.api.local.WebSocketManager
 import ru.fromchat.api.local.cache.CacheContext
 import ru.fromchat.api.local.db.store.ConnectionStateStore
@@ -16,14 +15,14 @@ import ru.fromchat.api.local.db.store.ConnectionStatus
 import ru.fromchat.api.local.db.store.MessageCacheStore
 import ru.fromchat.api.local.db.store.MessageRepository
 import ru.fromchat.api.local.db.store.ProfileCache
+import ru.fromchat.api.local.messages.PublicInboxCoordinator
 import ru.fromchat.api.local.messages.parseMessageTimestampMillis
-import ru.fromchat.api.schema.messages.Message
 import ru.fromchat.api.schema.websocket.WebSocketMessage
 import ru.fromchat.api.schema.websocket.types.WebSocketUpdatesData
 
 /**
- * Keeps the chats tab list in sync: DM conversations from the server and the latest public-chat
- * message for list previews (without opening each chat first).
+ * Keeps the chats tab list in sync: DM conversations from the server and public-chat
+ * previews (cache is filled by the updates pipeline / history rebuild).
  */
 @OptIn(FlowPreview::class)
 object ChatListSync {
@@ -58,7 +57,14 @@ object ChatListSync {
     suspend fun syncFromNetwork() {
         if (!canSync()) return
         syncDmConversations()
-        syncPublicChatPreview()
+        // Preview only — never the sole catch-up path for missed messages.
+        refreshPublicChatPreviewFromLatest()
+    }
+
+    /** Used by tooLong rebuild before per-chat history fetch. */
+    suspend fun syncDmConversationsForRebuild() {
+        if (!canSync()) return
+        syncDmConversations()
     }
 
     private fun canSync(): Boolean {
@@ -78,12 +84,13 @@ object ChatListSync {
         }
     }
 
-    private suspend fun syncPublicChatPreview() {
+    private suspend fun refreshPublicChatPreviewFromLatest() {
         runCatching {
             val response = ApiClient.getMessages(limit = 1)
             val latest = response.messages.maxByOrNull { message ->
                 parseMessageTimestampMillis(message.timestamp) ?: Long.MIN_VALUE
             } ?: return@runCatching
+            // Upsert only — does not wipe older cached messages.
             MessageRepository.upsertPublicMessage(latest)
         }
     }
@@ -100,16 +107,14 @@ object ChatListSync {
                 }
             }
             "newMessage" -> message.data?.let { element ->
-                scope.launch { ingestPublicMessage(element) }
+                scope.launch { PublicInboxCoordinator.processNew(element) }
+            }
+            "messageEdited" -> message.data?.let { element ->
+                scope.launch { PublicInboxCoordinator.processEdited(element) }
+            }
+            "messageDeleted" -> message.data?.let { element ->
+                scope.launch { PublicInboxCoordinator.processDeleted(element) }
             }
         }
-    }
-
-    private suspend fun ingestPublicMessage(element: JsonElement) {
-        val newMsg = runCatching {
-            ApiClient.json.decodeFromJsonElement(Message.serializer(), element)
-        }.getOrNull() ?: return
-        ProfileCache.mergePreviewFromPublicMessage(newMsg)
-        MessageRepository.upsertPublicMessage(newMsg)
     }
 }

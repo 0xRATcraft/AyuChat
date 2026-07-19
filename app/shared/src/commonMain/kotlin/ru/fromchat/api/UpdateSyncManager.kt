@@ -1,34 +1,48 @@
 package ru.fromchat.api
 
 import com.pr0gramm3r101.utils.settings.settings
-import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import ru.fromchat.Logger
 import ru.fromchat.api.local.WebSocketManager
 import ru.fromchat.api.local.db.store.ConnectionStateStore
+import ru.fromchat.api.local.db.store.MessageCacheStore
+import ru.fromchat.api.local.db.store.MessageRepository
+import ru.fromchat.api.local.db.store.ProfileCache
+import ru.fromchat.api.local.messages.DmInboundMessageProcessor
+import ru.fromchat.api.local.messages.UpdatesBatchApplier
+import ru.fromchat.api.local.messages.parseMessageTimestampMillis
+import ru.fromchat.api.schema.messages.Message
+import ru.fromchat.api.schema.messages.dm.DmEnvelope
 import ru.fromchat.api.schema.websocket.WebSocketCredentials
 import ru.fromchat.api.schema.websocket.WebSocketMessage
+import ru.fromchat.api.schema.websocket.requests.AckUpdatesRequest
 import ru.fromchat.api.schema.websocket.requests.GetUpdatesRequest
 import ru.fromchat.api.schema.websocket.requests.GetUpdatesResponse
 import kotlin.concurrent.Volatile
 
 /**
- * Tracks the last seen WebSocket update sequence for the current user and
- * persists it between sessions so we can ask the backend for missed updates.
+ * Per-device update cursor: advance + ack only after batches are applied successfully.
  */
 object UpdateSyncManager {
     private const val KEY_UPDATES_LAST_SEQ_PREFIX = "updates_last_seq_user_"
+    private const val HISTORY_PAGE_SIZE = 50
+    private const val MAX_HISTORY_PAGES = 20
 
     private val _lastSeq = MutableStateFlow(0)
     val lastSeq: StateFlow<Int> = _lastSeq.asStateFlow()
 
     private val _lastMissedCount = MutableStateFlow<Int?>(null)
     val lastMissedCount: StateFlow<Int?> = _lastMissedCount.asStateFlow()
+
+    private val applyMutex = Mutex()
 
     @Volatile
     private var gapDetectionInProgress: Boolean = false
@@ -42,22 +56,15 @@ object UpdateSyncManager {
         ConnectionStateStore.updateSeqAndMissed(lastSeq = stored, missedCount = null)
     }
 
-    @OptIn(DelicateCoroutinesApi::class)
-    fun onUpdatesBatch(seq: Int) {
-        if (seq <= 0) return
-        val currentUserId = ApiClient.user?.id ?: return
-        val newSeq = seq.coerceAtLeast(_lastSeq.value)
-        if (newSeq == _lastSeq.value) return
-
-        _lastSeq.value = newSeq
-        ConnectionStateStore.updateSeqAndMissed(lastSeq = newSeq, missedCount = _lastMissedCount.value)
-
-        val key = KEY_UPDATES_LAST_SEQ_PREFIX + currentUserId
-        GlobalScope.launch(Dispatchers.Default) {
-            runCatching {
-                settings.putInt(key, newSeq)
-            }.onFailure {
-                Logger.w("UpdateSyncManager", "Failed to persist lastSeq=$newSeq for userId=$currentUserId: ${it.message}", it)
+    /**
+     * Apply a live or replayed updates envelope, then advance cursor and ack the server.
+     */
+    suspend fun onUpdatesEnvelope(jsonTree: JsonElement) {
+        applyMutex.withLock {
+            val seq = UpdatesBatchApplier.applyEnvelope(jsonTree) ?: return@withLock
+            if (seq > _lastSeq.value) {
+                persistLastSeq(seq)
+                sendAck(seq)
             }
         }
     }
@@ -81,9 +88,8 @@ object UpdateSyncManager {
     }
 
     /**
-     * Ask the backend for missed updates between our lastSeq and the current sequence.
-     * This call is idempotent while in progress and will no-op if there is no active
-     * WebSocket session or no authenticated user.
+     * Catch up from [lastSeq]: chunked getUpdates, or tooLong → history rebuild.
+     * Does not advance the cursor until apply/rebuild succeeds.
      */
     suspend fun runGapDetectionIfNeeded() {
         if (gapDetectionInProgress) {
@@ -98,52 +104,158 @@ object UpdateSyncManager {
         }
 
         gapDetectionInProgress = true
-        val startSeq = _lastSeq.value
+        ConnectionStateStore.onUpdating(start = true)
 
         try {
-            Logger.i("UpdateSyncManager", "Running gap detection from lastSeq=$startSeq")
-            if (startSeq > 0) {
-                ConnectionStateStore.onUpdating(start = true)
-            }
+            var rounds = 0
+            while (rounds < 100) {
+                rounds++
+                val startSeq = _lastSeq.value
+                Logger.i("UpdateSyncManager", "Gap detection from lastSeq=$startSeq (round=$rounds)")
 
-            val requestMessage = WebSocketMessage(
-                type = "getUpdates",
-                credentials = WebSocketCredentials(
-                    scheme = "Bearer",
-                    credentials = token
-                ),
-                data = ApiClient.json.encodeToJsonElement(
-                    GetUpdatesRequest.serializer(),
-                    GetUpdatesRequest(lastSeq = startSeq)
+                val response = requestGetUpdates(token, startSeq) ?: break
+                Logger.i(
+                    "UpdateSyncManager",
+                    "Gap detection result: status=${response.status}, lastSeq=${response.lastSeq}, " +
+                        "missed=${response.missedCount}, hasMore=${response.hasMore}",
                 )
-            )
+                updateMissedCount(response.missedCount)
 
-            val response = WebSocketManager.request(requestMessage)
-            val data = response?.data
-
-            if (data != null) {
-                runCatching {
-                    val parsed = ApiClient.json.decodeFromJsonElement(GetUpdatesResponse.serializer(), data)
-                    Logger.i(
-                        "UpdateSyncManager",
-                        "Gap detection result: status=${parsed.status}, lastSeq=${parsed.lastSeq}, missed=${parsed.missedCount}"
-                    )
-                    onUpdatesBatch(parsed.lastSeq)
-                    updateMissedCount(parsed.missedCount)
-                }.onFailure {
-                    Logger.w("UpdateSyncManager", "Failed to parse getUpdates response: ${it.message}", it)
+                when (response.status) {
+                    "tooLong" -> {
+                        val ok = rebuildStateFromHistory()
+                        if (ok) {
+                            persistLastSeq(response.lastSeq)
+                            sendAck(response.lastSeq)
+                        } else {
+                            Logger.w("UpdateSyncManager", "History rebuild failed; leaving lastSeq=$startSeq")
+                        }
+                        break
+                    }
+                    "ok" -> {
+                        if (response.lastSeq > _lastSeq.value && response.missedCount == 0) {
+                            persistLastSeq(response.lastSeq)
+                            sendAck(response.lastSeq)
+                        }
+                        if (!response.hasMore) break
+                    }
+                    else -> {
+                        Logger.w("UpdateSyncManager", "Unknown getUpdates status=${response.status}")
+                        break
+                    }
                 }
-            } else {
-                Logger.d("UpdateSyncManager", "No data returned from getUpdates; treating as no-op")
             }
         } catch (t: Throwable) {
             Logger.w("UpdateSyncManager", "Gap detection failed: ${t.message}", t)
         } finally {
-            if (startSeq > 0) {
-                ConnectionStateStore.onUpdating(start = false)
-            }
+            ConnectionStateStore.onUpdating(start = false)
             gapDetectionInProgress = false
         }
     }
-}
 
+    private suspend fun requestGetUpdates(token: String, lastSeq: Int): GetUpdatesResponse? {
+        val requestMessage = WebSocketMessage(
+            type = "getUpdates",
+            credentials = WebSocketCredentials(
+                scheme = "Bearer",
+                credentials = token,
+            ),
+            data = ApiClient.json.encodeToJsonElement(
+                GetUpdatesRequest.serializer(),
+                GetUpdatesRequest(lastSeq = lastSeq),
+            ),
+        )
+        val response = WebSocketManager.request(requestMessage)
+        val data = response?.data ?: return null
+        return runCatching {
+            ApiClient.json.decodeFromJsonElement(GetUpdatesResponse.serializer(), data)
+        }.onFailure {
+            Logger.w("UpdateSyncManager", "Failed to parse getUpdates response: ${it.message}", it)
+        }.getOrNull()
+    }
+
+    private suspend fun sendAck(seq: Int) {
+        val token = ApiClient.token ?: return
+        if (seq <= 0) return
+        runCatching {
+            WebSocketManager.request(
+                WebSocketMessage(
+                    type = "ackUpdates",
+                    credentials = WebSocketCredentials(scheme = "Bearer", credentials = token),
+                    data = ApiClient.json.encodeToJsonElement(
+                        AckUpdatesRequest.serializer(),
+                        AckUpdatesRequest(lastSeq = seq),
+                    ),
+                ),
+            )
+        }.onFailure {
+            Logger.w("UpdateSyncManager", "ackUpdates failed for seq=$seq: ${it.message}", it)
+        }
+    }
+
+    private suspend fun persistLastSeq(seq: Int) {
+        val currentUserId = ApiClient.user?.id ?: return
+        if (seq <= _lastSeq.value) return
+        _lastSeq.value = seq
+        ConnectionStateStore.updateSeqAndMissed(lastSeq = seq, missedCount = _lastMissedCount.value)
+        withContext(Dispatchers.Default) {
+            runCatching {
+                settings.putInt(KEY_UPDATES_LAST_SEQ_PREFIX + currentUserId, seq)
+            }.onFailure {
+                Logger.w("UpdateSyncManager", "Failed to persist lastSeq=$seq: ${it.message}", it)
+            }
+        }
+    }
+
+    suspend fun rebuildStateFromHistory(): Boolean = withContext(Dispatchers.Default) {
+        Logger.i("UpdateSyncManager", "Rebuilding local state from history (tooLong)")
+        runCatching {
+            ChatListSync.syncDmConversationsForRebuild()
+            rebuildPublicHistory()
+            rebuildDmHistories()
+            true
+        }.onFailure {
+            Logger.w("UpdateSyncManager", "rebuildStateFromHistory failed: ${it.message}", it)
+        }.getOrDefault(false)
+    }
+
+    private suspend fun rebuildPublicHistory() {
+        val collected = LinkedHashMap<Int, Message>()
+        var beforeId: Int? = null
+        repeat(MAX_HISTORY_PAGES) {
+            val page = ApiClient.getMessages(limit = HISTORY_PAGE_SIZE, beforeId = beforeId)
+            if (page.messages.isEmpty()) return@repeat
+            page.messages.forEach { msg ->
+                ProfileCache.mergePreviewFromPublicMessage(msg)
+                collected[msg.id] = msg
+            }
+            val oldest = page.messages.minByOrNull { it.id } ?: return@repeat
+            if (page.messages.size < HISTORY_PAGE_SIZE) return@repeat
+            beforeId = oldest.id
+        }
+        val ordered = collected.values.sortedBy {
+            parseMessageTimestampMillis(it.timestamp) ?: 0L
+        }
+        MessageRepository.replacePublicMessages(ordered)
+    }
+
+    private suspend fun rebuildDmHistories() {
+        val conversations = MessageRepository.loadCachedDmConversations()
+        for (conversation in conversations) {
+            val otherId = conversation.otherUserId
+            MessageCacheStore.clearDmMessages(otherId)
+            var beforeId: Int? = null
+            repeat(MAX_HISTORY_PAGES) {
+                val page = ApiClient.getDmHistory(otherId, limit = HISTORY_PAGE_SIZE, beforeId = beforeId)
+                if (page.messages.isEmpty()) return@repeat
+                for (envelope in page.messages) {
+                    val element = ApiClient.json.encodeToJsonElement(DmEnvelope.serializer(), envelope)
+                    DmInboundMessageProcessor.processNew(element)
+                }
+                val oldest = page.messages.minByOrNull { it.id } ?: return@repeat
+                if (page.messages.size < HISTORY_PAGE_SIZE) return@repeat
+                beforeId = oldest.id
+            }
+        }
+    }
+}
