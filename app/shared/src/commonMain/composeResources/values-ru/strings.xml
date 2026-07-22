@@ -169,6 +169,7 @@
     <string name="profile_load_failed">Не получилось загрузить профиль</string>
     <string name="profile_not_found">Профиль не найден</string>
     <string name="profile_open_failed">Не удалось открыть профиль. Попробуйте снова.</string>
+    <string name="profile_invalid_link">Не удалось открыть ссылку</string>
     <string name="action_open_settings">Настройки</string>
     <string name="action_chat">Написать</string>
     <string name="action_copy_link">Скопировать ссылку</string>

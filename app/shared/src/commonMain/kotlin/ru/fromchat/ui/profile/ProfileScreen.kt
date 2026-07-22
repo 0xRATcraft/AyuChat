@@ -174,6 +174,7 @@ import ru.fromchat.profile_headline_bio
 import ru.fromchat.profile_headline_member_since
 import ru.fromchat.profile_headline_username
 import ru.fromchat.profile_headline_verification
+import ru.fromchat.profile_invalid_link
 import ru.fromchat.profile_load_failed
 import ru.fromchat.profile_not_found
 import ru.fromchat.profile_verified_support
@@ -830,6 +831,7 @@ fun ProfileScreen(
                                 clipboard = clipboard,
                                 navController = navController,
                                 scope = scope,
+                                snackbarHostState = snackbarHostState,
                                 openContextMenuHaptic = openContextMenuHaptic,
                                 onBack = onBack,
                                 onProfileUpdated = { updated ->
@@ -1045,6 +1047,7 @@ fun PublicChatProfileScreen(
                             labelCopy = labelCopy,
                             clipboard = clipboard,
                             scope = scope,
+                            snackbarHostState = snackbarHostState,
                         )
                     }
                 }
@@ -1084,6 +1087,7 @@ private fun PublicChatProfileLoadedBody(
     labelCopy: String,
     clipboard: SupportClipboardManager,
     scope: CoroutineScope,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -1130,6 +1134,7 @@ private fun PublicChatProfileLoadedBody(
                     supportingSlot = {
                         ProfileBioMarkdown(
                             content = resolvedProfile.bio.orEmpty(),
+                            snackbarHostState = snackbarHostState,
                         )
                     },
                     position = ListItemPosition.START,
@@ -1317,6 +1322,7 @@ private fun ProfileLoadedBody(
     clipboard: SupportClipboardManager,
     navController: NavController,
     scope: CoroutineScope,
+    snackbarHostState: SnackbarHostState,
     openContextMenuHaptic: () -> Unit,
     onBack: () -> Unit,
     onProfileUpdated: (UserProfile) -> Unit,
@@ -1498,7 +1504,10 @@ private fun ProfileLoadedBody(
                         headline = headlineBio,
                         supportingSlot = {
                             key(resolvedProfile.id, bioContent) {
-                                ProfileBioMarkdown(content = bioContent)
+                                ProfileBioMarkdown(
+                                    content = bioContent,
+                                    snackbarHostState = snackbarHostState,
+                                )
                             }
                         },
                         divider = true,
@@ -1857,14 +1866,27 @@ private fun ProfileLoadedBody(
 @Composable
 private fun ProfileBioMarkdown(
     content: String,
+    snackbarHostState: SnackbarHostState,
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    val invalidLinkMessage = stringResource(Res.string.profile_invalid_link)
 
     MarkdownPlain(
         content = content,
         modifier = modifier,
-        onLinkClick = { uriHandler.openUri(it) },
+        onLinkClick = { uri ->
+            runCatching { uriHandler.openUri(uri) }.onFailure {
+                scope.launch {
+                    snackbarHostState.showReplacingSnackbar(
+                        message = invalidLinkMessage,
+                        withDismissAction = false,
+                        duration = SnackbarDuration.Short,
+                    )
+                }
+            }
+        },
     )
 }
 
