@@ -46,7 +46,8 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -595,11 +596,14 @@ fun DevicesScreen(onBack: () -> Unit) {
     }
 
     sheetDevice?.let { d ->
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+        )
 
         ModalBottomSheet(
             onDismissRequest = { if (!sheetSigningOut) sheetDevice = null },
-            sheetState = sheetState
+            sheetState = sheetState,
         ) {
             DeviceSessionDetailBottomSheet(
                 d = d,

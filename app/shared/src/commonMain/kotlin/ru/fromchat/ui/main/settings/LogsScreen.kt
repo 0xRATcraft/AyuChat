@@ -88,7 +88,8 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDatePickerState
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.material3.rememberTopAppBarState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -632,13 +633,15 @@ fun LogsScreen() {
     }
 
     if (showShareSheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
         ModalBottomSheet(
             onDismissRequest = {
                 showShareSheet = false
                 pendingShareRequest = null
             },
-            sheetState = sheetState,
+            sheetState = rememberBottomSheetState(
+                initialValue = SheetValue.Hidden,
+                enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+            ),
         ) {
             LogsShareBottomSheet(
                 onUncompressed = { performShare(LogShareCompression.Uncompressed) },
@@ -648,7 +651,10 @@ fun LogsScreen() {
     }
 
     if (showCleanSheet) {
-        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        val sheetState = rememberBottomSheetState(
+            initialValue = SheetValue.Hidden,
+            enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+        )
         ModalBottomSheet(
             onDismissRequest = { showCleanSheet = false },
             sheetState = sheetState,
