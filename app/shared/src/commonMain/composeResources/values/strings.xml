@@ -38,6 +38,7 @@
     <!-- Validation Errors -->
     <string name="fill_all_fields">Please fill in every field</string>
     <string name="username_length_error">Username must be 3 to 20 characters</string>
+    <string name="username_chars_error">Username can only contain English letters, numbers, hyphens and underscores</string>
     <string name="password_length_error">Password must be 5 to 50 characters</string>
     <string name="passwords_dont_match">The two passwords don’t match</string>
     <string name="auth_welcome_title">Welcome to FromChat</string>

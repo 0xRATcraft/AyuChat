@@ -42,7 +42,12 @@ import ru.fromchat.ui.components.expressiveStepFieldColors
 import ru.fromchat.ui.components.trackImeScrollTarget
 import ru.fromchat.ui.main.settings.SettingsStepHorizontalPadding
 import ru.fromchat.username
+import ru.fromchat.username_chars_error
 import ru.fromchat.username_length_error
+
+/** Matches backend `is_valid_username`: English letters, digits, hyphen, underscore. */
+private fun isAllowedUsernameChar(ch: Char) =
+    ch in 'a'..'z' || ch in 'A'..'Z' || ch in '0'..'9' || ch == '_' || ch == '-'
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -59,9 +64,11 @@ internal fun usernameStepPage(
 
     val fillAll = stringResource(Res.string.fill_all_fields)
     val usernameLenError = stringResource(Res.string.username_length_error)
+    val usernameCharsError = stringResource(Res.string.username_chars_error)
     val serverFail = stringResource(Res.string.auth_server_connect_failed)
     val unexpected = stringResource(Res.string.error_unexpected)
     val nextLabel = stringResource(Res.string.settings_next)
+    val hasProhibitedChars = username.trim().any { !isAllowedUsernameChar(it) }
 
     return ExpressiveStepPage(
         hero = ExpressiveHeroSpec(
@@ -90,6 +97,12 @@ internal fun usernameStepPage(
                     .trackImeScrollTarget(imeScroll, ExpressiveStepLazyListIndices.STEPS_BODY)
                     .padding(horizontal = SettingsStepHorizontalPadding),
                 singleLine = true,
+                isError = hasProhibitedChars,
+                supportingText = if (hasProhibitedChars) {
+                    { Text(usernameCharsError) }
+                } else {
+                    null
+                },
                 colors = expressiveStepFieldColors(),
                 shape = SettingsPasswordOutlineFieldShape,
             )
@@ -98,7 +111,7 @@ internal fun usernameStepPage(
         button = {
             ActionButton(
                 onClick = {
-                    if (busy) return@ActionButton
+                    if (busy || hasProhibitedChars) return@ActionButton
                     val trimmed = username.trim()
                     if (trimmed.isBlank()) {
                         onSnackbar(fillAll, null)
@@ -136,7 +149,7 @@ internal fun usernameStepPage(
                         }
                     }
                 },
-                enabled = !busy,
+                enabled = !busy && !hasProhibitedChars,
                 loading = busy,
                 modifier = Modifier.fillMaxWidth(),
             ) {

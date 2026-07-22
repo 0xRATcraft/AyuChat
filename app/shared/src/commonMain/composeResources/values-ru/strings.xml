@@ -31,6 +31,7 @@
     <string name="display_name_error">От 1 до 64 символов</string>
     <string name="fill_all_fields">Заполните все поля</string>
     <string name="username_length_error">Имя пользователя — от 3 до 20 символов</string>
+    <string name="username_chars_error">Имя пользователя может содержать только английские буквы, цифры, дефисы и подчеркивания</string>
     <string name="password_length_error">Пароль — от 5 до 50 символов</string>
     <string name="passwords_dont_match">Пароли не совпадают</string>
     <string name="auth_welcome_title">Добро пожаловать в FromChat</string>
