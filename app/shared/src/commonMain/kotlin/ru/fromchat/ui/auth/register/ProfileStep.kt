@@ -56,6 +56,7 @@ internal fun profileStepPage(
     onBioChange: (String) -> Unit,
     password: String,
     registrationProof: String?,
+    captchaToken: String?,
     onRegisterSuccess: () -> Unit,
     onUsernameTaken: () -> Unit,
     onSnackbar: (String, Throwable?) -> Unit,
@@ -149,6 +150,7 @@ internal fun profileStepPage(
                                     password = password,
                                     bio = bio.trim(),
                                     registrationProof = registrationProof,
+                                    captchaToken = captchaToken,
                                     unexpectedError = unexpected,
                                 )
                             ) {

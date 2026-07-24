@@ -20,20 +20,24 @@ import io.ktor.client.plugins.ClientRequestException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import org.jetbrains.compose.resources.stringResource
+import ru.fromchat.Logger
 import ru.fromchat.Res
 import ru.fromchat.api.ApiClient
 import ru.fromchat.api.crypto.IdentityKeyManager
-import ru.fromchat.api.local.cache.CacheContext
-import ru.fromchat.api.local.db.clearAccountCacheOnLogout
 import ru.fromchat.api.instance.ServerProbeResult
 import ru.fromchat.api.instance.probeServer
+import ru.fromchat.api.local.cache.CacheContext
+import ru.fromchat.api.local.db.clearAccountCacheOnLogout
 import ru.fromchat.api.schema.core.ErrorResponse
 import ru.fromchat.api.schema.user.auth.LoginResponse
 import ru.fromchat.api.schema.user.auth.RegisterConfirmRequest
+import ru.fromchat.api.schema.user.auth.SmartCaptchaParams
 import ru.fromchat.api.schema.user.auth.YandexOAuthParams
 import ru.fromchat.change_server
 import ru.fromchat.config.Settings
 import ru.fromchat.ui.LocalNavController
+import ru.fromchat.ui.auth.captcha.SmartCaptchaLog
+import ru.fromchat.ui.auth.captcha.SmartCaptchaNav
 import ru.fromchat.ui.auth.register.confirmPasswordStepPage
 import ru.fromchat.ui.auth.register.profileStepPage
 import ru.fromchat.ui.auth.yandex.yandexIdStepPage
@@ -58,6 +62,8 @@ internal sealed interface PasswordStepResult {
     data class NeedsRegister(
         val yandexRequired: Boolean,
         val yandex: YandexOAuthParams?,
+        val captchaRequired: Boolean,
+        val captcha: SmartCaptchaParams?,
     ) : PasswordStepResult
     data class WrongPassword(val message: String) : PasswordStepResult
     data class RateLimited(val message: String) : PasswordStepResult
@@ -120,10 +126,20 @@ internal suspend fun authPasswordStep(
             PasswordStepResult.LoginSuccess
         }
 
-        is ApiClient.AuthPasswordStepOutcome.NeedsRegister -> PasswordStepResult.NeedsRegister(
-            yandexRequired = outcome.yandexRequired,
-            yandex = outcome.yandex,
-        )
+        is ApiClient.AuthPasswordStepOutcome.NeedsRegister -> {
+            Logger.i(
+                SmartCaptchaLog.TAG,
+                "password step needs_register yandexRequired=${outcome.yandexRequired} " +
+                    "captchaRequired=${outcome.captchaRequired} " +
+                    "clientKey=${SmartCaptchaLog.redactKey(outcome.captcha?.client_key)}",
+            )
+            PasswordStepResult.NeedsRegister(
+                yandexRequired = outcome.yandexRequired,
+                yandex = outcome.yandex,
+                captchaRequired = outcome.captchaRequired,
+                captcha = outcome.captcha,
+            )
+        }
     }
 } catch (e: ClientRequestException) {
     when (e.response.status.value) {
@@ -147,8 +163,15 @@ internal suspend fun register(
     password: String,
     bio: String,
     registrationProof: String?,
+    captchaToken: String?,
     unexpectedError: String,
 ) = try {
+    Logger.i(
+        SmartCaptchaLog.TAG,
+        "register confirm start username=${username.trim()} " +
+            "hasRegistrationProof=${!registrationProof.isNullOrBlank()} " +
+            "captchaToken=${SmartCaptchaLog.redactToken(captchaToken)}",
+    )
     fullLogin(username.trim(), password.trim()) {
         val derived = deriveAuthSecret(username.trim(), password.trim())
         ApiClient.authRegisterConfirm(
@@ -159,17 +182,25 @@ internal suspend fun register(
                 confirm_password = derived,
                 bio = bio.trim().takeIf { it.isNotEmpty() },
                 registration_proof = registrationProof,
+                captcha_token = captchaToken,
             ),
         )
     }
+    Logger.i(SmartCaptchaLog.TAG, "register confirm success username=${username.trim()}")
     RegisterResult.Success
 } catch (e: ClientRequestException) {
+    Logger.w(
+        SmartCaptchaLog.TAG,
+        "register confirm HTTP ${e.response.status.value} username=${username.trim()}",
+        e,
+    )
     if (e.response.status.value == 400 && isUsernameTakenError(e)) {
         RegisterResult.UsernameTaken
     } else {
         RegisterResult.Error(parseClientError(e, unexpectedError))
     }
 } catch (e: Exception) {
+    Logger.e(SmartCaptchaLog.TAG, "register confirm failed username=${username.trim()}", e)
     RegisterResult.Error(unexpectedError, e)
 }
 
@@ -216,7 +247,11 @@ fun AuthScreen(
     var bio by remember { mutableStateOf(AuthRegisterDraft.bio) }
     var yandexRequired by remember { mutableStateOf(AuthRegisterDraft.yandexRequired) }
     var yandexParams by remember { mutableStateOf(AuthRegisterDraft.yandexParams) }
+    var captchaRequired by remember { mutableStateOf(AuthRegisterDraft.captchaRequired) }
+    var captchaParams by remember { mutableStateOf(AuthRegisterDraft.captchaParams) }
     var registrationProof by remember { mutableStateOf(AuthRegisterDraft.registrationProof) }
+    var captchaToken by remember { mutableStateOf(AuthRegisterDraft.captchaToken) }
+    val navController = LocalNavController.current
 
     fun persistDraft() {
         AuthRegisterDraft.username = username
@@ -226,7 +261,10 @@ fun AuthScreen(
         AuthRegisterDraft.bio = bio
         AuthRegisterDraft.yandexRequired = yandexRequired
         AuthRegisterDraft.yandexParams = yandexParams
+        AuthRegisterDraft.captchaRequired = captchaRequired
+        AuthRegisterDraft.captchaParams = captchaParams
         AuthRegisterDraft.registrationProof = registrationProof
+        AuthRegisterDraft.captchaToken = captchaToken
         AuthRegisterDraft.page = flowState.pagerState.currentPage
     }
 
@@ -257,7 +295,10 @@ fun AuthScreen(
         bio = ""
         yandexRequired = false
         yandexParams = null
+        captchaRequired = false
+        captchaParams = null
         registrationProof = null
+        captchaToken = null
         AuthRegisterDraft.clear()
         flowState.resetPredictiveState()
         scope.launch {
@@ -269,7 +310,19 @@ fun AuthScreen(
         onDispose { persistDraft() }
     }
 
-    LaunchedEffect(username, password, confirmPassword, displayName, bio, yandexRequired, yandexParams, registrationProof) {
+    LaunchedEffect(
+        username,
+        password,
+        confirmPassword,
+        displayName,
+        bio,
+        yandexRequired,
+        yandexParams,
+        captchaRequired,
+        captchaParams,
+        registrationProof,
+        captchaToken,
+    ) {
         persistDraft()
     }
 
@@ -284,7 +337,12 @@ fun AuthScreen(
         snapshotFlow { flowState.pagerState.currentPage }
             .collect { page ->
                 AuthRegisterDraft.page = page
-                if (page == AuthFlowStep.YandexId.ordinal && !yandexRequired) {
+                // Don't skip the Yandex slot mid predictive-back — that fights pager morph
+                // (Profile ↔ ConfirmPassword) and glitches when the gesture is cancelled.
+                if (page == AuthFlowStep.YandexId.ordinal &&
+                    !yandexRequired &&
+                    flowState.predictiveFromPage == null
+                ) {
                     val target = if (page > settledPage) {
                         AuthFlowStep.Profile.ordinal
                     } else {
@@ -301,7 +359,10 @@ fun AuthScreen(
                             confirmPassword = ""
                             yandexRequired = false
                             yandexParams = null
+                            captchaRequired = false
+                            captchaParams = null
                             registrationProof = null
+                            captchaToken = null
                         }
 
                         AuthFlowStep.Password.ordinal -> {
@@ -309,12 +370,16 @@ fun AuthScreen(
                             confirmPassword = ""
                             yandexRequired = false
                             yandexParams = null
+                            captchaRequired = false
+                            captchaParams = null
                             registrationProof = null
+                            captchaToken = null
                         }
 
                         AuthFlowStep.ConfirmPassword.ordinal -> {
-                            // Keep confirm password when returning from Yandex ID / OAuth.
+                            // Keep confirm password when returning from Yandex ID / OAuth / captcha.
                             registrationProof = null
+                            captchaToken = null
                         }
 
                         AuthFlowStep.YandexId.ordinal -> {
@@ -324,6 +389,47 @@ fun AuthScreen(
                 }
                 settledPage = page
             }
+    }
+
+    // After predictive back settles on the skipped Yandex slot, jump to ConfirmPassword.
+    LaunchedEffect(flowState.predictiveFromPage, yandexRequired) {
+        if (flowState.predictiveFromPage != null || yandexRequired) return@LaunchedEffect
+        if (flowState.pagerState.currentPage == AuthFlowStep.YandexId.ordinal) {
+            flowState.pagerState.scrollToPage(AuthFlowStep.ConfirmPassword.ordinal)
+        }
+    }
+
+    LaunchedEffect(navController) {
+        val handle = navController.currentBackStackEntry?.savedStateHandle ?: return@LaunchedEffect
+        handle.getStateFlow<String?>(SmartCaptchaNav.RESULT_TOKEN, null).collect { token ->
+            if (token == null) return@collect
+            handle.remove<String>(SmartCaptchaNav.RESULT_TOKEN)
+            Logger.i(
+                SmartCaptchaLog.TAG,
+                "AuthScreen received token ${SmartCaptchaLog.redactToken(token)} → Profile",
+            )
+            captchaToken = token
+            flowState.pagerState.animateScrollToPage(AuthFlowStep.Profile.ordinal)
+        }
+    }
+
+    LaunchedEffect(navController) {
+        val handle = navController.currentBackStackEntry?.savedStateHandle ?: return@LaunchedEffect
+        handle.getStateFlow<String?>(SmartCaptchaNav.RESULT_ERROR, null).collect { message ->
+            if (message == null) return@collect
+            handle.remove<String>(SmartCaptchaNav.RESULT_ERROR)
+            Logger.w(SmartCaptchaLog.TAG, "AuthScreen captcha error: $message")
+            snackbar(message)
+        }
+    }
+
+    fun openCaptchaRoute(clientKey: String) {
+        Logger.i(
+            SmartCaptchaLog.TAG,
+            "navigate ${SmartCaptchaNav.ROUTE} clientKey=${SmartCaptchaLog.redactKey(clientKey)}",
+        )
+        SmartCaptchaNav.pending = SmartCaptchaNav.Session(clientKey = clientKey)
+        navController.navigate(SmartCaptchaNav.ROUTE)
     }
 
     val yandexStep = yandexParams
@@ -343,10 +449,18 @@ fun AuthScreen(
                 password = password,
                 onPasswordChange = { password = it },
                 onLoginSuccess = wrappedAuthSuccess,
-                onNeedsRegister = { required, params ->
+                onNeedsRegister = { required, params, captchaReq, captcha ->
+                    Logger.i(
+                        SmartCaptchaLog.TAG,
+                        "onNeedsRegister yandexRequired=$required captchaRequired=$captchaReq " +
+                            "clientKey=${SmartCaptchaLog.redactKey(captcha?.client_key)}",
+                    )
                     yandexRequired = required
                     yandexParams = params
+                    captchaRequired = captchaReq
+                    captchaParams = captcha
                     registrationProof = null
+                    captchaToken = null
                     flowState.pagerState.animateScrollToPage(AuthFlowStep.ConfirmPassword.ordinal)
                 },
                 onSnackbar = ::snackbar,
@@ -356,10 +470,23 @@ fun AuthScreen(
                 onConfirmPasswordChange = { confirmPassword = it },
                 password = password,
                 onContinue = {
-                    if (yandexRequired && yandexParams != null) {
-                        flowState.pagerState.animateScrollToPage(AuthFlowStep.YandexId.ordinal)
-                    } else {
-                        flowState.pagerState.animateScrollToPage(AuthFlowStep.Profile.ordinal)
+                    val captchaKey = captchaParams?.client_key?.trim().orEmpty()
+                    when {
+                        yandexRequired && yandexParams != null -> {
+                            Logger.i(SmartCaptchaLog.TAG, "confirm → YandexId (captcha skipped)")
+                            flowState.pagerState.animateScrollToPage(AuthFlowStep.YandexId.ordinal)
+                        }
+                        captchaRequired && captchaToken.isNullOrBlank() && captchaKey.isNotEmpty() -> {
+                            openCaptchaRoute(captchaKey)
+                        }
+                        else -> {
+                            Logger.i(
+                                SmartCaptchaLog.TAG,
+                                "confirm → Profile captchaRequired=$captchaRequired " +
+                                    "hasToken=${!captchaToken.isNullOrBlank()}",
+                            )
+                            flowState.pagerState.animateScrollToPage(AuthFlowStep.Profile.ordinal)
+                        }
                     }
                 },
                 onSnackbar = ::snackbar,
@@ -379,7 +506,16 @@ fun AuthScreen(
                     onConfirmPasswordChange = { confirmPassword = it },
                     password = password,
                     onContinue = {
-                        flowState.pagerState.animateScrollToPage(AuthFlowStep.Profile.ordinal)
+                        val captchaKey = captchaParams?.client_key?.trim().orEmpty()
+                        when {
+                            captchaRequired && captchaToken.isNullOrBlank() && captchaKey.isNotEmpty() -> {
+                                openCaptchaRoute(captchaKey)
+                            }
+                            else -> {
+                                Logger.i(SmartCaptchaLog.TAG, "yandex-placeholder confirm → Profile")
+                                flowState.pagerState.animateScrollToPage(AuthFlowStep.Profile.ordinal)
+                            }
+                        }
                     },
                     onSnackbar = ::snackbar,
                 )
@@ -392,6 +528,7 @@ fun AuthScreen(
                 onBioChange = { bio = it },
                 password = password,
                 registrationProof = registrationProof,
+                captchaToken = captchaToken,
                 onRegisterSuccess = wrappedAuthSuccess,
                 onUsernameTaken = resetToUsername,
                 onSnackbar = ::snackbar,

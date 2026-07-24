@@ -55,6 +55,9 @@
     <string name="auth_step_yandex_title">Войдите через Яндекс ID</string>
     <string name="auth_step_yandex_body">Так мы боремся с вредоносными ботами и соблюдаем требования российских законов. От Яндекса мы получаем только email — и мы его не сохраняем: вход нужен лишь для защиты.</string>
     <string name="auth_step_yandex_cta">Продолжить через Яндекс ID</string>
+    <string name="auth_captcha_title">Быстрая проверка</string>
+    <string name="auth_captcha_body">Подтвердите, что вы человек, чтобы продолжить создание аккаунта.</string>
+    <string name="auth_captcha_failed">Не удалось пройти проверку. Попробуйте ещё раз.</string>
     <string name="auth_yandex_webview_title">Яндекс ID</string>
     <string name="auth_yandex_client_mismatch">Сервер вернул неожиданный идентификатор приложения Яндекса. Обновите приложение или обратитесь в поддержку.</string>
     <string name="auth_yandex_failed">Вход через Яндекс ID отменён или не удался.</string>

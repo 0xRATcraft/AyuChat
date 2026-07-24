@@ -62,6 +62,9 @@
     <string name="auth_step_yandex_title">Sign in with Yandex ID</string>
     <string name="auth_step_yandex_body">This helps us fight malicious bots and meet Russian legal requirements. From Yandex we only get your email — and we don’t store it; sign-in is only used for security reasons.</string>
     <string name="auth_step_yandex_cta">Continue with Yandex ID</string>
+    <string name="auth_captcha_title">Quick check</string>
+    <string name="auth_captcha_body">Confirm you’re human to continue creating your account.</string>
+    <string name="auth_captcha_failed">Captcha verification failed. Please try again.</string>
     <string name="auth_yandex_webview_title">Yandex ID</string>
     <string name="auth_yandex_client_mismatch">This server returned an unexpected Yandex app id. Update the app or contact support.</string>
     <string name="auth_yandex_failed">Yandex sign-in was cancelled or failed.</string>

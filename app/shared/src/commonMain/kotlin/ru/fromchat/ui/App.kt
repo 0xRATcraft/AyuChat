@@ -79,6 +79,8 @@ import ru.fromchat.legal.DocumentScreen
 import ru.fromchat.legal.DocumentType
 import ru.fromchat.notifications.NotificationLaunchCoordinator
 import ru.fromchat.ui.auth.AuthScreen
+import ru.fromchat.ui.auth.captcha.SmartCaptchaNav
+import ru.fromchat.ui.auth.captcha.SmartCaptchaScreen
 import ru.fromchat.ui.auth.yandex.YandexOAuthNav
 import ru.fromchat.ui.auth.yandex.YandexOAuthScreen
 import ru.fromchat.ui.calls.CallOverlay
@@ -464,6 +466,10 @@ fun App(
 
                             composable(YandexOAuthNav.ROUTE) {
                                 YandexOAuthScreen()
+                            }
+
+                            composable(SmartCaptchaNav.ROUTE) {
+                                SmartCaptchaScreen()
                             }
 
                             composable("chat") {

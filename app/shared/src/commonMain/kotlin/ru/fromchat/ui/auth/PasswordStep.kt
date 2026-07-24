@@ -35,6 +35,7 @@ import ru.fromchat.login
 import ru.fromchat.password
 import ru.fromchat.password_length_error
 import ru.fromchat.show_password
+import ru.fromchat.api.schema.user.auth.SmartCaptchaParams
 import ru.fromchat.api.schema.user.auth.YandexOAuthParams
 import ru.fromchat.ui.components.ActionButton
 import ru.fromchat.ui.components.ExpressiveHeroSpec
@@ -54,7 +55,12 @@ internal fun passwordStepPage(
     password: String,
     onPasswordChange: (String) -> Unit,
     onLoginSuccess: () -> Unit,
-    onNeedsRegister: suspend (yandexRequired: Boolean, yandex: YandexOAuthParams?) -> Unit,
+    onNeedsRegister: suspend (
+        yandexRequired: Boolean,
+        yandex: YandexOAuthParams?,
+        captchaRequired: Boolean,
+        captcha: SmartCaptchaParams?,
+    ) -> Unit,
     onSnackbar: (String, Throwable?) -> Unit,
 ): ExpressiveStepPage {
     val scope = rememberCoroutineScope()
@@ -135,7 +141,12 @@ internal fun passwordStepPage(
                                 }
 
                                 is PasswordStepResult.NeedsRegister -> {
-                                    onNeedsRegister(result.yandexRequired, result.yandex)
+                                    onNeedsRegister(
+                                        result.yandexRequired,
+                                        result.yandex,
+                                        result.captchaRequired,
+                                        result.captcha,
+                                    )
                                 }
 
                                 is PasswordStepResult.WrongPassword -> {

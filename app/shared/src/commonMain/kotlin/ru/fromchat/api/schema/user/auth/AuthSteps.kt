@@ -28,10 +28,17 @@ data class YandexOAuthParams(
 )
 
 @Serializable
+data class SmartCaptchaParams(
+    val client_key: String,
+)
+
+@Serializable
 data class AuthNeedsRegisterResponse(
     val status: String,
     val yandex_required: Boolean = false,
     val yandex: YandexOAuthParams? = null,
+    val captcha_required: Boolean = false,
+    val captcha: SmartCaptchaParams? = null,
 )
 
 @Serializable
@@ -70,4 +77,5 @@ data class RegisterConfirmRequest(
     val confirm_password: String,
     val bio: String? = null,
     val registration_proof: String? = null,
+    val captcha_token: String? = null,
 )

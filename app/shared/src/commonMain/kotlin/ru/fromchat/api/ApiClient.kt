@@ -114,6 +114,7 @@ import ru.fromchat.api.schema.user.auth.CheckAuthResponse
 import ru.fromchat.api.schema.user.auth.CheckUsernameResponse
 import ru.fromchat.api.schema.user.auth.LoginResponse
 import ru.fromchat.api.schema.user.auth.RegisterConfirmRequest
+import ru.fromchat.api.schema.user.auth.SmartCaptchaParams
 import ru.fromchat.api.schema.user.auth.YandexExchangeRequest
 import ru.fromchat.api.schema.user.auth.YandexExchangeResponse
 import ru.fromchat.api.schema.user.auth.YandexOAuthParams
@@ -495,6 +496,8 @@ object ApiClient {
         data class NeedsRegister(
             val yandexRequired: Boolean,
             val yandex: YandexOAuthParams?,
+            val captchaRequired: Boolean,
+            val captcha: SmartCaptchaParams?,
         ) : AuthPasswordStepOutcome
     }
 
@@ -512,10 +515,26 @@ object ApiClient {
             .body<JsonObject>()
         val status = raw["status"]?.jsonPrimitive?.contentOrNull
         return when (status) {
-            "needs_register" -> AuthPasswordStepOutcome.NeedsRegister(
-                yandexRequired = raw["yandex_required"]?.jsonPrimitive?.booleanOrNull == true,
-                yandex = raw["yandex"]?.let { json.decodeFromJsonElement(YandexOAuthParams.serializer(), it) },
-            )
+            "needs_register" -> {
+                val yandexRequired = raw["yandex_required"]?.jsonPrimitive?.booleanOrNull == true
+                val captchaRequired = raw["captcha_required"]?.jsonPrimitive?.booleanOrNull == true
+                val captcha = raw["captcha"]?.let {
+                    json.decodeFromJsonElement(SmartCaptchaParams.serializer(), it)
+                }
+                ru.fromchat.Logger.i(
+                    "SmartCaptcha",
+                    "authPasswordStep needs_register yandexRequired=$yandexRequired " +
+                        "captchaRequired=$captchaRequired " +
+                        "hasCaptchaObject=${captcha != null} " +
+                        "clientKeyLen=${captcha?.client_key?.length ?: 0}",
+                )
+                AuthPasswordStepOutcome.NeedsRegister(
+                    yandexRequired = yandexRequired,
+                    yandex = raw["yandex"]?.let { json.decodeFromJsonElement(YandexOAuthParams.serializer(), it) },
+                    captchaRequired = captchaRequired,
+                    captcha = captcha,
+                )
+            }
             else -> AuthPasswordStepOutcome.LoggedIn(json.decodeFromJsonElement(LoginResponse.serializer(), raw))
         }
     }

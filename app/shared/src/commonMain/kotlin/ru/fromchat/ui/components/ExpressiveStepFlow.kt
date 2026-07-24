@@ -400,13 +400,13 @@ fun ExpressiveStepFlowScaffold(
                 flowState.resetPredictiveState()
                 return@PredictiveBackHandler
             }
+            // Cancel must always reverse — never commit just because progress crossed the threshold.
             scope.launch {
-                val commit = lastProgress >= predictiveThreshold
                 finishPredictiveMorph(
                     flowState = flowState,
                     pagerState = pagerState,
                     startProgress = lastProgress,
-                    targetProgress = if (commit) 1f else 0f,
+                    targetProgress = 0f,
                 )
             }
         },
